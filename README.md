@@ -1,1 +1,1 @@
-This is a Java implementation of the [Token Bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket algorithm).
+This is a Java implementation of the [Token Bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket).
