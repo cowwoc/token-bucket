@@ -209,7 +209,7 @@ public final class Bucket
 	 */
 	public void consume(long tokens) throws InterruptedException
 	{
-		requireThat("tokens", tokens).isNotPositive();
+		requireThat("tokens", tokens).isPositive();
 		synchronized (mutex)
 		{
 			Duration durationToSleep = getDurationUntilTokensAvailable(tokens);
