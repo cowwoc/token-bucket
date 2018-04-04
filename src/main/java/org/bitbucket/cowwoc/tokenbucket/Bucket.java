@@ -225,7 +225,7 @@ public final class Bucket
 			}
 			do
 			{
-				mutex.wait(durationToSleep.getSeconds(), durationToSleep.getNano());
+				mutex.wait(durationToSleep.getSeconds(), durationToSleep.getNano() / 1000);
 				refillTokens();
 				durationToSleep = getDurationUntilTokensAvailable(tokens);
 			}
