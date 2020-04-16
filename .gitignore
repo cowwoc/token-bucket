@@ -1,0 +1,6 @@
+syntax: glob
+target/
+
+# Jetbrains IDEA files
+.idea/
+*.iml
