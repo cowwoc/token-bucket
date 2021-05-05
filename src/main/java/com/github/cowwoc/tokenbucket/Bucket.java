@@ -55,7 +55,7 @@ public final class Bucket
 	 *
 	 * @param limit the limit
 	 * @return true on success; false if the limit was already applied to the bucket
-	 * @throws NullPointerException if {@code limit] is null
+	 * @throws NullPointerException if {@code limit} is null
 	 */
 	public boolean addLimit(Limit limit)
 	{
@@ -77,7 +77,7 @@ public final class Bucket
 	 *
 	 * @param limit the limit
 	 * @return true on success; false if the limit could not be found
-	 * @throws NullPointerException if {@code limit] is null
+	 * @throws NullPointerException if {@code limit} is null
 	 */
 	public boolean removeLimit(Limit limit)
 	{
