@@ -2,15 +2,11 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
-	<parent>
-		<groupId>org.sonatype.oss</groupId>
-		<artifactId>oss-parent</artifactId>
-		<version>9</version>
-	</parent>
 	<groupId>com.github.cowwoc.token-bucket</groupId>
 	<artifactId>token-bucket</artifactId>
-	<version>1.1-SNAPSHOT</version>
+	<version>1.0-SNAPSHOT</version>
 	<packaging>jar</packaging>
+	<name>Token-Bucket</name>
 	<description>A Java implementation of the Token Bucket algorithm</description>
 	<url>https://github.com/cowwoc/token-bucket/</url>
 
@@ -25,7 +21,7 @@
 	<scm>
 		<url>https://github.com/cowwoc/token-bucket/</url>
 		<connection>scm:git:https://github.com/cowwoc/token-bucket/</connection>
-		<developerConnection>scm:git:https://github.com.org/cowwoc/token-bucket/</developerConnection>
+		<developerConnection>scm:git:https://github.com/cowwoc/token-bucket/</developerConnection>
 		<tag>HEAD</tag>
 	</scm>
 
@@ -39,16 +35,46 @@
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<maven.compiler.release>11</maven.compiler.release>
-		<maven.version>3.6.3</maven.version>
-		<requirements.version>6.0.1</requirements.version>
+		<maven.compiler.release>17</maven.compiler.release>
+		<maven.version>3.8.1</maven.version>
+		<maven-source-plugin.version>3.2.1</maven-source-plugin.version>
+		<maven-javadoc-plugin.version>3.3.2</maven-javadoc-plugin.version>
+		<maven-gpg-plugin.version>3.0.1</maven-gpg-plugin.version>
+		<requirements.version>6.1.0</requirements.version>
+		<snapshot.repository>https://oss.sonatype.org/content/repositories/snapshots</snapshot.repository>
+		<staging.repository>https://oss.sonatype.org/service/local/staging/deploy/maven2</staging.repository>
 	</properties>
+
+	<distributionManagement>
+		<snapshotRepository>
+			<id>maven-central-snapshots</id>
+			<url>${snapshot.repository}</url>
+		</snapshotRepository>
+		<repository>
+			<id>maven-central-releases</id>
+			<url>${staging.repository}</url>
+		</repository>
+	</distributionManagement>
+
+	<dependencies>
+		<dependency>
+			<groupId>com.github.cowwoc.requirements</groupId>
+			<artifactId>java</artifactId>
+			<version>${requirements.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+			<version>1.7.36</version>
+		</dependency>
+	</dependencies>
 
 	<build>
 		<plugins>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-enforcer-plugin</artifactId>
+				<version>3.0.0</version>
 				<executions>
 					<execution>
 						<id>enforce-maven</id>
@@ -81,27 +107,27 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.8.1</version>
+				<version>3.9.0</version>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-javadoc-plugin</artifactId>
-				<version>3.2.0</version>
+				<version>${maven-javadoc-plugin.version}</version>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-source-plugin</artifactId>
-				<version>3.2.1</version>
+				<version>${maven-source-plugin.version}</version>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-gpg-plugin</artifactId>
-				<version>1.6</version>
+				<version>${maven-gpg-plugin.version}</version>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
-				<version>2.22.2</version>
+				<version>3.0.0-M5</version>
 			</plugin>
 			<plugin>
 				<artifactId>maven-clean-plugin</artifactId>
@@ -109,20 +135,20 @@
 			</plugin>
 			<plugin>
 				<artifactId>maven-deploy-plugin</artifactId>
-				<version>2.8.2</version>
+				<version>3.0.0-M2</version>
 			</plugin>
 			<plugin>
 				<artifactId>maven-install-plugin</artifactId>
-				<version>2.5.2</version>
+				<version>3.0.0-M1</version>
 			</plugin>
 			<plugin>
 				<artifactId>maven-jar-plugin</artifactId>
-				<version>3.2.0</version>
+				<version>3.2.2</version>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-release-plugin</artifactId>
-				<version>2.5.3</version>
+				<version>3.0.0-M5</version>
 				<configuration>
 					<autoVersionSubmodules>true</autoVersionSubmodules>
 					<tagNameFormat>release-@{project.version}</tagNameFormat>
@@ -131,27 +157,24 @@
 			<plugin>
 				<groupId>org.sonatype.plugins</groupId>
 				<artifactId>nexus-staging-maven-plugin</artifactId>
-				<version>1.6.8</version>
+				<version>1.6.9</version>
 				<extensions>true</extensions>
 				<configuration>
-					<serverId>sonatype-nexus-staging</serverId>
+					<serverId>maven-central-releases</serverId>
 					<nexusUrl>https://oss.sonatype.org/</nexusUrl>
 				</configuration>
 			</plugin>
+			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>versions-maven-plugin</artifactId>
+				<version>2.9.0</version>
+				<!--
+				Make sure to always execute plugin with -U:
+				https://github.com/mojohaus/versions-maven-plugin/issues/415#issuecomment-650539705
+				-->
+			</plugin>
 		</plugins>
 	</build>
-	<dependencies>
-		<dependency>
-			<groupId>com.github.cowwoc.requirements</groupId>
-			<artifactId>java</artifactId>
-			<version>${requirements.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>org.slf4j</groupId>
-			<artifactId>slf4j-api</artifactId>
-			<version>1.7.30</version>
-		</dependency>
-	</dependencies>
 
 	<profiles>
 		<profile>
@@ -166,7 +189,7 @@
 					<plugin>
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-source-plugin</artifactId>
-						<version>3.0.1</version>
+						<version>${maven-source-plugin.version}</version>
 						<executions>
 							<execution>
 								<id>attach-sources</id>
@@ -179,7 +202,7 @@
 					<plugin>
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-javadoc-plugin</artifactId>
-						<version>3.0.0</version>
+						<version>${maven-javadoc-plugin.version}</version>
 						<executions>
 							<execution>
 								<id>attach-javadocs</id>
@@ -207,7 +230,7 @@
 					<plugin>
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-gpg-plugin</artifactId>
-						<version>1.6</version>
+						<version>${maven-gpg-plugin.version}</version>
 						<executions>
 							<execution>
 								<id>sign-artifacts</id>
@@ -240,7 +263,7 @@
 					<plugin>
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-gpg-plugin</artifactId>
-						<version>1.6</version>
+						<version>${maven-gpg-plugin.version}</version>
 						<executions>
 							<execution>
 								<id>sign-artifacts</id>
