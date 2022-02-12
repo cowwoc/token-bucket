@@ -2,14 +2,9 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
-	<parent>
-		<groupId>org.sonatype.oss</groupId>
-		<artifactId>oss-parent</artifactId>
-		<version>9</version>
-	</parent>
 	<groupId>com.github.cowwoc.token-bucket</groupId>
 	<artifactId>token-bucket</artifactId>
-	<version>1.1-SNAPSHOT</version>
+	<version>1.0-SNAPSHOT</version>
 	<packaging>jar</packaging>
 	<description>A Java implementation of the Token Bucket algorithm</description>
 	<url>https://github.com/cowwoc/token-bucket/</url>
@@ -25,7 +20,7 @@
 	<scm>
 		<url>https://github.com/cowwoc/token-bucket/</url>
 		<connection>scm:git:https://github.com/cowwoc/token-bucket/</connection>
-		<developerConnection>scm:git:https://github.com.org/cowwoc/token-bucket/</developerConnection>
+		<developerConnection>scm:git:https://github.com/cowwoc/token-bucket/</developerConnection>
 		<tag>HEAD</tag>
 	</scm>
 
@@ -37,11 +32,24 @@
 		</developer>
 	</developers>
 
+	<distributionManagement>
+		<snapshotRepository>
+			<id>maven-central-snapshots</id>
+			<url>${snapshot.repository}</url>
+		</snapshotRepository>
+		<repository>
+			<id>maven-central-releases</id>
+			<url>${staging.repository}</url>
+		</repository>
+	</distributionManagement>
+
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<maven.compiler.release>11</maven.compiler.release>
+		<maven.compiler.release>17</maven.compiler.release>
 		<maven.version>3.6.3</maven.version>
-		<requirements.version>6.0.1</requirements.version>
+		<requirements.version>6.1.0</requirements.version>
+		<snapshot.repository>https://oss.sonatype.org/content/repositories/snapshots</snapshot.repository>
+		<staging.repository>https://oss.sonatype.org/content/groups/staging</staging.repository>
 	</properties>
 
 	<build>
@@ -49,6 +57,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-enforcer-plugin</artifactId>
+				<version>3.0.0</version>
 				<executions>
 					<execution>
 						<id>enforce-maven</id>
@@ -101,7 +110,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
-				<version>2.22.2</version>
+				<version>3.0.0-M5</version>
 			</plugin>
 			<plugin>
 				<artifactId>maven-clean-plugin</artifactId>
@@ -109,11 +118,11 @@
 			</plugin>
 			<plugin>
 				<artifactId>maven-deploy-plugin</artifactId>
-				<version>2.8.2</version>
+				<version>3.0.0-M2</version>
 			</plugin>
 			<plugin>
 				<artifactId>maven-install-plugin</artifactId>
-				<version>2.5.2</version>
+				<version>3.0.0-M1</version>
 			</plugin>
 			<plugin>
 				<artifactId>maven-jar-plugin</artifactId>
@@ -122,7 +131,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-release-plugin</artifactId>
-				<version>2.5.3</version>
+				<version>3.0.0-M5</version>
 				<configuration>
 					<autoVersionSubmodules>true</autoVersionSubmodules>
 					<tagNameFormat>release-@{project.version}</tagNameFormat>
@@ -134,9 +143,20 @@
 				<version>1.6.8</version>
 				<extensions>true</extensions>
 				<configuration>
-					<serverId>sonatype-nexus-staging</serverId>
+					<serverId>maven-central-releases</serverId>
 					<nexusUrl>https://oss.sonatype.org/</nexusUrl>
 				</configuration>
+				<dependencies>
+					<!--
+						WORKAROUND: https://issues.sonatype.org/browse/NEXUS-26993
+						See https://github.com/sonatype/nexus-maven-plugins/pull/91
+					-->
+					<dependency>
+						<groupId>com.thoughtworks.xstream</groupId>
+						<artifactId>xstream</artifactId>
+						<version>1.4.15</version>
+					</dependency>
+				</dependencies>
 			</plugin>
 		</plugins>
 	</build>
@@ -149,7 +169,7 @@
 		<dependency>
 			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-api</artifactId>
-			<version>1.7.30</version>
+			<version>1.7.36</version>
 		</dependency>
 	</dependencies>
 
