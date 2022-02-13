@@ -25,8 +25,6 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
  * An implementation of the <a href="https://en.wikipedia.org/wiki/Token_bucket">Token bucket algorithm</a>.
  * <p>
  * This class is thread-safe.
- *
- * @author Gili Tzabari
  */
 public final class Bucket
 {

@@ -10,8 +10,6 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
  * A rate limit.
- *
- * @author Gili Tzabari
  */
 public final class Limit
 {
@@ -37,8 +35,8 @@ public final class Limit
 		requireThat(tokensPerPeriod, "tokensPerPeriod").isPositive();
 		requireThat(period, "period").isNotNull().isGreaterThan(Duration.ZERO);
 		requireThat(initialTokens, "initialTokens").isNotNegative();
-		requireThat(maxTokens, "maxTokens").isPositive().isGreaterThan(tokensPerPeriod, "tokensPerPeriod").
-			isGreaterThan(initialTokens, "initialTokens");
+		requireThat(maxTokens, "maxTokens").isPositive().isGreaterThanOrEqualTo(tokensPerPeriod, "tokensPerPeriod").
+			isGreaterThanOrEqualTo(initialTokens, "initialTokens");
 		this.tokensPerPeriod = tokensPerPeriod;
 		this.period = period;
 		this.initialTokens = initialTokens;
@@ -86,9 +84,8 @@ public final class Limit
 	@Override
 	public boolean equals(Object o)
 	{
-		if (!(o instanceof Limit))
+		if (!(o instanceof Limit other))
 			return false;
-		Limit other = (Limit) o;
 		return tokensPerPeriod == other.tokensPerPeriod && initialTokens == other.initialTokens &&
 			maxTokens == other.maxTokens && period.equals(other.period);
 	}
