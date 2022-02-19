@@ -28,7 +28,7 @@ public final class SchedulingPolicy
 	 * Returns a scheduler that selects the next bucket in a round-robin fashion.
 	 *
 	 * @return a scheduler that selects the next bucket in a round-robin fashion
-	 * @see <a href="https://en.wikipedia.org/wiki/Round-robin_scheduling>Round robin scheduling</a>
+	 * @see <a href="https://en.wikipedia.org/wiki/Round-robin_scheduling">Round robin scheduling</a>
 	 */
 	public static SchedulingPolicy roundRobin()
 	{

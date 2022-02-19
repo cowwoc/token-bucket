@@ -5,12 +5,14 @@ This is a Java implementation of the [Token Bucket algorithm](https://en.wikiped
 
 # Download
 
-You can download this library from https://search.maven.org/search?q=g:com.github.cowwoc.token-bucket or using the following Maven dependency:
+You can download this library from https://search.maven.org/search?q=g:com.github.cowwoc.token-bucket or using
+the following Maven dependency:
+
 ```
 <dependency>
   <groupId>com.github.cowwoc.token-bucket</groupId>
   <artifactId>token-bucket</artifactId>
-  <version>1.0</version>
+  <version>2.0</version>
 </dependency>
 ```
 
@@ -26,10 +28,10 @@ long maxTokens = 120;
 bucket.addLimit(new Limit(tokensPerPeriod, period, initialTokens, maxTokens));
 
 
-// Polls a server with a limit of 5 requests per second and a maximum burst of 120 requests at a time.
+// Polls a server with a limit of 5 requests per second and a maximum burst of 120 requests.
 while (true)
 {
-  bucket.consume(1);
+  bucket.consume();
   client.pollServer();
 }
 ```
