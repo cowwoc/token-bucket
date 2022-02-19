@@ -3,42 +3,28 @@
  */
 package com.github.cowwoc.tokenbucket;
 
+import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 
+import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
  * An implementation of the <a href="https://en.wikipedia.org/wiki/Token_bucket">Token bucket algorithm</a>.
  * <p>
- * This class is thread-safe.
+ * <b>Thread safety</b>: This class is thread-safe.
  */
-public final class Bucket
+public final class Bucket extends AbstractBucket
 {
-	// Surprisingly, synchronized blocks are one of the fastest synchronization mechanisms as of JDK 9
 	private final Object mutex = new Object();
-	private final Set<Limit> limits = new HashSet<>();
-	/**
-	 * A map from each {@code Limit} to the time relative to which tokens were last refilled.
-	 */
-	private final Map<Limit, Instant> limitToRefillTime = new HashMap<>();
-	/**
-	 * A map from each {@code Limit} to the number of tokens available for consumption.
-	 */
-	private final Map<Limit, Long> limitToTokensAvailable = new HashMap<>();
+	private Set<Limit> limits = Set.of();
 	private final Logger log = LoggerFactory.getLogger(Bucket.class);
 
 	/**
@@ -48,26 +34,34 @@ public final class Bucket
 	{
 	}
 
+	@Override
+	protected Object getMutex()
+	{
+		return mutex;
+	}
+
+	@Override
+	protected Logger getLogger()
+	{
+		return log;
+	}
+
 	/**
 	 * Adds a limit that the bucket must respect.
+	 * <ul>
+	 * <li>{@code initialTokens} defaults to {@code 0}.</li>
+	 * <li>{@code maxTokens} defaults to {@code Long.MAX_VALUE}.</li>
+	 * <li>{@code minimumToRefill} defaults to {@code 1}.</li>
+	 * </ul>
 	 *
-	 * @param limit the limit
-	 * @return true on success; false if the limit was already applied to the bucket
-	 * @throws NullPointerException if {@code limit} is null
+	 * @param tokensPerPeriod the amount of tokens to add to the bucket every {@code period}
+	 * @param period          indicates how often {@code tokensPerPeriod} should be added to the bucket
+	 * @throws IllegalArgumentException if {@code tokensPerPeriod} or {@code period} are negative or zero
 	 */
-	public boolean addLimit(Limit limit)
+	@CheckReturnValue
+	public LimitAdder addLimit(long tokensPerPeriod, Duration period)
 	{
-		synchronized (mutex)
-		{
-			boolean result = limits.add(limit);
-			if (!result)
-				return false;
-			limitToRefillTime.put(limit, Instant.now());
-			limitToTokensAvailable.put(limit, limit.getInitialTokens());
-			// Adding a limit causes consumers to have to wait the same amount of time, or longer. No need to wake sleeping
-			// consumers.
-			return true;
-		}
+		return new LimitAdder(tokensPerPeriod, period);
 	}
 
 	/**
@@ -79,61 +73,17 @@ public final class Bucket
 	 */
 	public boolean removeLimit(Limit limit)
 	{
+		requireThat(limit, "limit").isNotNull();
 		synchronized (mutex)
 		{
-			boolean result = limits.remove(limit);
+			Set<Limit> newLimits = new HashSet<>(limits);
+			boolean result = newLimits.remove(limit);
 			if (!result)
 				return false;
-			limitToRefillTime.remove(limit);
-			limitToTokensAvailable.remove(limit);
+			limits = Set.copyOf(newLimits);
 			// Removing a limit might allow consumers to wait a shorter period of time. Wake all sleeping consumers and ask
 			// them to recalculate their sleep time.
 			mutex.notifyAll();
-			return true;
-		}
-	}
-
-	/**
-	 * Replaces a limit while retaining the number of available tokens ({@code Limit.initialTokens} is ignored).
-	 * If the number of available tokens is greater than the new limit's {@link Limit#getMaxTokens() maxTokens}
-	 * it is reduced to {@code maxTokens}.
-	 *
-	 * @param oldLimit the old imit
-	 * @param newLimit the new limit
-	 * @return true if the old limit was found
-	 * @throws NullPointerException if any of the arguments are null
-	 */
-	public boolean replaceLimit(Limit oldLimit, Limit newLimit)
-	{
-		requireThat(oldLimit, "oldLimit").isNotNull();
-		requireThat(newLimit, "newLimit").isNotNull();
-		synchronized (mutex)
-		{
-			boolean result = limits.contains(oldLimit);
-			if (!result)
-				return false;
-			Instant refillTime = Instant.now();
-			refillTokens(oldLimit, refillTime);
-
-			limitToRefillTime.remove(oldLimit);
-			Long tokensAvailable = limitToTokensAvailable.remove(oldLimit);
-			limits.remove(oldLimit);
-			limits.add(newLimit);
-
-			limitToRefillTime.put(newLimit, refillTime);
-			limitToTokensAvailable.put(newLimit, tokensAvailable);
-
-			Function<Limit, Duration> periodPerToken = limit -> limit.getPeriod().dividedBy(limit.getTokensPerPeriod());
-			Duration oldPeriodPerToken = periodPerToken.apply(oldLimit);
-			Duration newPeriodPerToken = periodPerToken.apply(newLimit);
-
-			if (newLimit.getMaxTokens() < oldLimit.getMaxTokens() ||
-				oldPeriodPerToken.compareTo(newPeriodPerToken) < 0)
-			{
-				// maxTokens has decreased, it might be impossible to consume the number of tokens that were requested.
-				// period-per-token has decreased. Sleeping consumers need to wake up sooner.
-				mutex.notifyAll();
-			}
 			return true;
 		}
 	}
@@ -145,296 +95,317 @@ public final class Bucket
 	{
 		synchronized (mutex)
 		{
-			limits.clear();
-			limitToRefillTime.clear();
-			limitToTokensAvailable.clear();
+			limits = Set.of();
 		}
 	}
 
 	/**
-	 * @return the limits associated with this bucket
+	 * Returns the limits associated with this bucket.
+	 *
+	 * @return an unmodifiable set
 	 */
 	public Set<Limit> getLimits()
 	{
-		return Set.copyOf(limits);
+		return limits;
 	}
 
 	/**
-	 * Attempt to consume the specified number of tokens. Consumption is not guaranteed to be fair.
+	 * Sets the limits associated with bucket.
 	 *
-	 * @param tokens the number of tokens to acquire
-	 * @return {@link Duration#ZERO} on success; otherwise, returns the minimum amount of time the caller would have to
-	 * wait until the requested number of tokens would become available
-	 * @throws IllegalArgumentException if {@code tokens} is negative or zero
+	 * @param limits the limits associated with bucket
+	 * @throws NullPointerException if {@code limits} is null
 	 */
-	public Duration tryConsume(long tokens)
+	void setLimits(Set<Limit> limits)
 	{
-		requireThat(tokens, "tokens").isNotPositive();
+		assertThat(limits, "limits").isNotNull();
+		this.limits = Set.copyOf(limits);
+	}
+
+	@Override
+	protected ConsumptionResult tryConsumeRange(long minimumTokens, long maximumTokens,
+	                                            Instant requestedAt)
+	{
+		requireThat(minimumTokens, "minimumTokens").isNotNegative();
+		requireThat(maximumTokens, "maximumTokens").isNotNegative().
+			isGreaterThanOrEqualTo(minimumTokens, "minimumTokens");
+		assertThat(requestedAt, "requestedAt").isNotNull();
 		synchronized (mutex)
 		{
-			long tokensAvailable = limitToTokensAvailable.values().stream().min(Comparator.naturalOrder()).
-				orElse(Long.MAX_VALUE);
-			if (tokensAvailable >= tokens)
+			for (Limit limit : limits)
+				limit.refill(requestedAt);
+			long tokensConsumed = 0;
+			long tokensLeft = Long.MAX_VALUE;
+			ConsumptionSimulation longestDelay = new ConsumptionSimulation(tokensConsumed, 0, requestedAt, requestedAt);
+			Comparator<Duration> comparator = Comparator.naturalOrder();
+			for (Limit limit : limits)
 			{
-				// No need to wait since we don't guarantee fairness
-				for (Entry<Limit, Long> entry : limitToTokensAvailable.entrySet())
-					entry.setValue(entry.getValue() - tokens);
-				return Duration.ZERO;
-			}
-			return getDurationUntilTokensAvailable(tokens);
-		}
-	}
-
-	/**
-	 * Attempt to consume a single token.
-	 *
-	 * @return true on success
-	 */
-	public boolean tryConsume()
-	{
-		return tryConsume(1) == Duration.ZERO;
-	}
-
-	/**
-	 * Blocks until consume the specified number of tokens. Consumption is not guaranteed to be fair.
-	 *
-	 * @param tokens the number of tokens to acquire
-	 * @throws IllegalArgumentException if {@code tokens} is negative or zero
-	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become available
-	 */
-	public void consume(long tokens) throws InterruptedException
-	{
-		requireThat(tokens, "tokens").isPositive();
-		synchronized (mutex)
-		{
-			Duration durationToSleep = getDurationUntilTokensAvailable(tokens);
-			if (durationToSleep.isZero())
-			{
-				// No need to wait since we don't guarantee fairness
-				for (Entry<Limit, Long> entry : limitToTokensAvailable.entrySet())
+				ConsumptionSimulation newConsumption = simulateConsumption(minimumTokens, maximumTokens, limit,
+					requestedAt);
+				tokensLeft = Math.min(tokensLeft, newConsumption.getTokensLeft());
+				tokensConsumed = Math.max(tokensConsumed, newConsumption.getTokensConsumed());
+				if (comparator.compare(newConsumption.getTokensAvailableIn(),
+					longestDelay.getTokensAvailableIn()) > 0)
 				{
-					assert (entry.getValue() >= tokens) : "got: " + entry.getValue() + ", want: " + tokens;
-					entry.setValue(entry.getValue() - tokens);
+					longestDelay = newConsumption;
 				}
-				return;
 			}
-			do
+			if (tokensConsumed > 0)
 			{
-				mutex.wait(durationToSleep.getSeconds(), durationToSleep.getNano() / 1000);
-				refillTokens();
-				durationToSleep = getDurationUntilTokensAvailable(tokens);
+				// Success
+				for (Limit limit : limits)
+					limit.consume(tokensConsumed);
+				return new ConsumptionResult(this, minimumTokens, maximumTokens, tokensConsumed,
+					tokensLeft, requestedAt, requestedAt);
 			}
-			while (!durationToSleep.isZero());
-			for (Entry<Limit, Long> entry : limitToTokensAvailable.entrySet())
-			{
-				entry.setValue(entry.getValue() - tokens);
-				assert (entry.getValue() >= tokens) : "got: " + entry.getValue() + ", want: " + tokens;
-			}
+			assertThat(longestDelay.getTokensConsumed(), "longestDelay.getTokensConsumed()").isZero();
+			return new ConsumptionResult(this, minimumTokens, maximumTokens, tokensConsumed, tokensLeft,
+				requestedAt, longestDelay.getTokensAvailableAt());
 		}
 	}
 
 	/**
-	 * Blocks until consume the specified number of tokens. Consumption is not guaranteed to be fair.
+	 * Simulates consumption with respect to a single limit.
 	 *
-	 * @param tokens  the number of tokens to acquire
-	 * @param timeout the maximum amount of time to wait
-	 * @param unit    the unit of {@code timeout}
-	 * @return true if the tokens were consumed; false if a timeout occurred
-	 * @throws IllegalArgumentException if {@code tokens} is negative or zero
-	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become available
+	 * @param minimumTokensRequested the minimum number of tokens that were requested
+	 * @param maximumTokensRequested the maximum number of tokens that were requested
+	 * @param limit                  the limit
+	 * @param requestedAt            the time at which the user attempted to consume the tokens
+	 * @return the simulated consumption
+	 * @throws IllegalArgumentException if the limit has a {@code maxTokens} that is less than
+	 *                                  {@code minimumTokensRequested}
 	 */
-	public boolean consume(long tokens, long timeout, TimeUnit unit) throws InterruptedException
+	private ConsumptionSimulation simulateConsumption(long minimumTokensRequested, long maximumTokensRequested,
+	                                                  Limit limit, Instant requestedAt)
 	{
-		requireThat(tokens, "tokens").isPositive();
-		Instant timeLimit = Instant.now().plus(timeout, chronoUnit(unit));
-		synchronized (mutex)
+		requireThat(limit.getMaxTokens(), "limit.getMaxTokens()").
+			isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
+		long tokensAvailable = limit.getTokensAvailable();
+		Instant tokensAvailableAt;
+		long tokensConsumed;
+		if (tokensAvailable < minimumTokensRequested)
 		{
-			Duration durationToSleep = getDurationUntilTokensAvailable(tokens);
-			if (durationToSleep.isZero())
+			long tokensNeeded = minimumTokensRequested - tokensAvailable;
+			long periodsToSleep = tokensNeeded / limit.getTokensPerPeriod();
+			Instant lastRefillTime = limit.getLastRefilledAt();
+			Duration period = limit.getPeriod();
+			tokensAvailableAt = lastRefillTime.plus(period.multipliedBy(periodsToSleep));
+			tokensConsumed = 0;
+		}
+		else
+		{
+			tokensAvailableAt = requestedAt;
+			tokensConsumed = Math.min(maximumTokensRequested, tokensAvailable);
+			tokensAvailable -= tokensConsumed;
+		}
+		return new ConsumptionSimulation(tokensConsumed, tokensAvailable, requestedAt, tokensAvailableAt);
+	}
+
+	@Override
+	public String toString()
+	{
+		return "limits: " + limits;
+	}
+
+	/**
+	 * A rate limit.
+	 */
+	public final class LimitAdder
+	{
+		private final long tokensPerPeriod;
+		private final Duration period;
+		private long initialTokens;
+		private long maxTokens;
+		private long minimumToRefill;
+
+		/**
+		 * Adds a limit that the bucket must respect.
+		 * <ul>
+		 * <li>{@code initialTokens} defaults to {@code 0}.</li>
+		 * <li>{@code maxTokens} defaults to {@code Long.MAX_VALUE}.</li>
+		 * <li>{@code minimumToRefill} defaults to {@code 1}.</li>
+		 * </ul>
+		 *
+		 * @param tokensPerPeriod the amount of tokens to add to the bucket every {@code period}
+		 * @param period          indicates how often {@code tokensPerPeriod} should be added to the bucket
+		 * @throws IllegalArgumentException if {@code tokensPerPeriod} or {@code period} are negative or zero
+		 */
+		private LimitAdder(long tokensPerPeriod, Duration period)
+		{
+			requireThat(tokensPerPeriod, "tokensPerPeriod").isPositive();
+			requireThat(period, "period").isGreaterThan(Duration.ZERO);
+			this.tokensPerPeriod = tokensPerPeriod;
+			this.period = period;
+			this.initialTokens = 0;
+			this.maxTokens = Long.MAX_VALUE;
+			this.minimumToRefill = 1;
+		}
+
+		/**
+		 * Sets the initial amount of tokens in the bucket.
+		 *
+		 * @param initialTokens the initial amount of tokens in the bucket
+		 * @return this
+		 * @throws IllegalArgumentException if {@code initialTokens} is negative
+		 */
+		@CheckReturnValue
+		public LimitAdder initialTokens(long initialTokens)
+		{
+			requireThat(initialTokens, "initialTokens").isNotNegative();
+			this.initialTokens = initialTokens;
+			return this;
+		}
+
+		/**
+		 * Sets the maximum amount of tokens that the bucket may hold before overflowing.
+		 *
+		 * @param maxTokens the maximum amount of tokens that the bucket may hold before overflowing
+		 *                  (subsequent tokens are discarded)
+		 * @return this
+		 * @throws IllegalArgumentException if {@code maxTokens} is negative or zero
+		 */
+		@CheckReturnValue
+		public LimitAdder maxTokens(long maxTokens)
+		{
+			requireThat(maxTokens, "maxTokens").isPositive();
+			this.maxTokens = maxTokens;
+			return this;
+		}
+
+		/**
+		 * Sets the minimum number of tokens to add to the limit.
+		 *
+		 * @param minimumToRefill the minimum number of tokens to add to the limit
+		 * @return this
+		 * @throws IllegalArgumentException if {@code minimumToRefill} is negative
+		 */
+		@CheckReturnValue
+		public LimitAdder minimumToRefill(long minimumToRefill)
+		{
+			requireThat(minimumToRefill, "minimumToRefill").isPositive();
+			this.minimumToRefill = minimumToRefill;
+			return this;
+		}
+
+		/**
+		 * Adds a new limit to the bucket with this configuration. If an existing limit already has this
+		 * configuration, it is returned instead.
+		 *
+		 * @return the new or existing Limit
+		 */
+		public Limit apply()
+		{
+			synchronized (mutex)
 			{
-				// No need to wait since we don't guarantee fairness
-				for (Entry<Limit, Long> entry : limitToTokensAvailable.entrySet())
+				for (Limit limit : limits)
 				{
-					assert (entry.getValue() >= tokens) : "got: " + entry.getValue() + ", want: " + tokens;
-					entry.setValue(entry.getValue() - tokens);
+					if (limit.getTokensPerPeriod() == tokensPerPeriod &&
+						limit.getPeriod().equals(period) &&
+						limit.getInitialTokens() == initialTokens &&
+						limit.getMaxTokens() == maxTokens &&
+						limit.getMinimumToRefill() == minimumToRefill)
+						return limit;
 				}
-				return true;
+				Limit limit = new Limit(tokensPerPeriod, period, initialTokens, maxTokens, minimumToRefill);
+				Set<Limit> newLimits = new HashSet<>(limits);
+				newLimits.add(limit);
+				limits = Set.copyOf(newLimits);
+				// Adding a limit causes consumers to have to wait the same amount of time, or longer. No need to
+				// wake sleeping consumers.
+				return limit;
 			}
-			do
-			{
-				if (!Instant.now().isBefore(timeLimit))
-					return false;
-				if (durationToSleep.isZero())
-					break;
-				log.info("consume() sleeping " + durationToSleep);
-				mutex.wait(durationToSleep.toMillis(), durationToSleep.getNano() / 1000);
-				refillTokens();
-				durationToSleep = getDurationUntilTokensAvailable(tokens);
-			}
-			while (!durationToSleep.isZero());
-			for (Entry<Limit, Long> entry : limitToTokensAvailable.entrySet())
-			{
-				assert (entry.getValue() >= tokens) : "got: " + entry.getValue() + ", want: " + tokens;
-				entry.setValue(entry.getValue() - tokens);
-			}
-			return true;
 		}
 	}
 
 	/**
-	 * Converts a {@code TimeUnit} to a {@code ChronoUnit}.
-	 * <p>
-	 * This handles the seven units declared in {@code TimeUnit}.
-	 *
-	 * @param unit the unit to convert, not null
-	 * @return the converted unit, not null
+	 * The result of a simulated token consumption.
 	 */
-	private static ChronoUnit chronoUnit(TimeUnit unit)
+	private static final class ConsumptionSimulation
 	{
-		// Backport from https://bugs.openjdk.java.net/browse/JDK-8141452
-		switch (unit)
+		private final long tokensConsumed;
+		private final long tokensLeft;
+		private final Instant requestedAt;
+		private final Instant tokensAvailableAt;
+
+		/**
+		 * Creates the result of a simulated token consumption.
+		 *
+		 * @param tokensConsumed    the number of tokens that were consumed
+		 * @param tokensLeft        the number of tokens that were left for consumption
+		 * @param requestedAt       the time at which the user requested to consume tokens
+		 * @param tokensAvailableAt the time at which the requested tokens will become available
+		 * @throws NullPointerException     if any of the arguments are null
+		 * @throws IllegalArgumentException if any of the arguments are negative. If
+		 *                                  {@code minimumTokensRequested > maximumTokensRequested}. If
+		 *                                  {@code tokensConsumed > 0 && tokensConsumed < minimumTokensRequested}
+		 */
+		public ConsumptionSimulation(long tokensConsumed, long tokensLeft, Instant requestedAt,
+		                             Instant tokensAvailableAt)
 		{
-			case NANOSECONDS:
-				return ChronoUnit.NANOS;
-			case MICROSECONDS:
-				return ChronoUnit.MICROS;
-			case MILLISECONDS:
-				return ChronoUnit.MILLIS;
-			case SECONDS:
-				return ChronoUnit.SECONDS;
-			case MINUTES:
-				return ChronoUnit.MINUTES;
-			case HOURS:
-				return ChronoUnit.HOURS;
-			case DAYS:
-				return ChronoUnit.DAYS;
-			default:
-				throw new IllegalArgumentException("Unknown TimeUnit constant");
+			assertThat(tokensConsumed, "tokensConsumed").isNotNegative();
+			assertThat(tokensLeft, "tokensLeft").isNotNegative();
+			assertThat(requestedAt, "requestedAt").isNotNull();
+			assertThat(tokensAvailableAt, "tokensAvailableAt").isNotNull();
+			this.tokensConsumed = tokensConsumed;
+			this.tokensLeft = tokensLeft;
+			this.requestedAt = requestedAt;
+			this.tokensAvailableAt = tokensAvailableAt;
 		}
-	}
 
-	/**
-	 * Consumes a single token.
-	 *
-	 * @throws InterruptedException if the thread is interrupted while waiting for tokens to become available
-	 */
-	public void consume() throws InterruptedException
-	{
-		consume(1);
-	}
-
-	/**
-	 * Adds tokens that have been added since {@code refillTime}.
-	 */
-	private void refillTokens()
-	{
-		Instant now = Instant.now();
-		for (Limit limit : limits)
-			refillTokens(limit, now);
-	}
-
-	/**
-	 * Adds tokens that have been added since {@code refillTime}.
-	 *
-	 * @param limit the limit to process
-	 * @param now   the current time
-	 */
-	private void refillTokens(Limit limit, Instant now)
-	{
-		Instant refillTime = limitToRefillTime.get(limit);
-		Duration elapsed = Duration.between(refillTime, now);
-		if (elapsed.isNegative())
-			return;
-		// Fill tokens smoothly. For example, a refill rate of 60 tokens a minute will add 1 token per second as opposed
-		// to 60 tokens all at once at the end of the minute.
-		Duration periodPerToken = limit.getPeriod().dividedBy(limit.getTokensPerPeriod());
-		long tokensToAdd = divide(elapsed, periodPerToken);
-		Duration delta = periodPerToken.multipliedBy(tokensToAdd);
-		limitToRefillTime.put(limit, refillTime.plus(delta));
-
-		long tokensAvailable = limitToTokensAvailable.get(limit);
-		limitToTokensAvailable.put(limit, Math.min(limit.getMaxTokens(),
-			saturatedAdd(tokensAvailable, tokensToAdd)));
-	}
-
-	/**
-	 * Adds two numbers, returning {@code Long.MAX_VALUE} or {@code Long.MIN_VALUE} if the sum would
-	 * overflow or underflow, respectively.
-	 *
-	 * @param first  the first number
-	 * @param second the second number
-	 * @return the sum
-	 */
-	private static long saturatedAdd(long first, long second)
-	{
-		long result = first + second;
-		if (second >= 0)
+		/**
+		 * Returns the number of tokens that were consumed by the request.
+		 *
+		 * @return the number of tokens that were consumed by the request
+		 */
+		public long getTokensConsumed()
 		{
-			if (result >= first)
-				return result;
-			return Long.MAX_VALUE;
+			return tokensConsumed;
 		}
-		if (result < first)
-			return result;
-		return Long.MIN_VALUE;
-	}
 
-	/**
-	 * @param first  the first duration
-	 * @param second the second duration
-	 * @return {@code first / second}
-	 */
-	private long divide(Duration first, Duration second)
-	{
-		assert (!first.isNegative()) : "first was negative";
-		assert (!second.isNegative()) : "second was negative";
-		assert (!second.isZero()) : "second was zero";
-		BigDecimal firstDecimal = getSeconds(first);
-		BigDecimal secondDecimal = getSeconds(second);
-		return firstDecimal.divideToIntegralValue(secondDecimal).longValueExact();
-	}
-
-	/**
-	 * @param duration a duration
-	 * @return the number of seconds in the duration
-	 */
-	private BigDecimal getSeconds(Duration duration)
-	{
-		return BigDecimal.valueOf(duration.getSeconds()).add(BigDecimal.valueOf(duration.getNano(), 9));
-	}
-
-	/**
-	 * @param tokens the number of desired tokens
-	 * @return the minimum amount of time until the requested number of tokens will be available
-	 */
-	private Duration getDurationUntilTokensAvailable(long tokens)
-	{
-		Duration result = Duration.ZERO;
-		Comparator<Duration> comparator = Comparator.naturalOrder();
-		for (Limit limit : limits)
+		/**
+		 * Returns true if the bucket was able to consume any tokens.
+		 *
+		 * @return true if the bucket was able to consume any tokens
+		 */
+		public boolean isSuccessful()
 		{
-			Duration duration = getDurationUntilTokensAvailable(tokens, limit);
-			if (comparator.compare(result, duration) < 0)
-				result = duration;
+			return tokensConsumed >= 0;
 		}
-		return result;
-	}
 
-	/**
-	 * @param tokens the number of desired tokens
-	 * @param limit  the limit
-	 * @return the minimum amount of time until the requested number of tokens will be available
-	 * @throws IllegalArgumentException if we'll never get enough tokens because one of the limits has a {@code maxTokens}
-	 *                                  that is less than {@code tokens}
-	 */
-	private Duration getDurationUntilTokensAvailable(long tokens, Limit limit)
-	{
-		requireThat(limit.getMaxTokens(), "limit.getMaxTokens()").isGreaterThanOrEqualTo(tokens, "tokens");
-		Long tokensAvailable = limitToTokensAvailable.get(limit);
-		if (tokensAvailable > tokens)
-			return Duration.ZERO;
-		long tokensNeeded = tokens - tokensAvailable;
-		long periodsToSleep = tokensNeeded / limit.getTokensPerPeriod();
-		return limit.getPeriod().multipliedBy(periodsToSleep);
+		/**
+		 * Returns the number of tokens that were left for consumption after processing the request.
+		 *
+		 * @return the number of tokens that were left for consumption after processing the request
+		 */
+		public long getTokensLeft()
+		{
+			return tokensLeft;
+		}
+
+		/**
+		 * Indicates when the requested number of tokens will become available.
+		 *
+		 * @return the time when the requested number of tokens will become available
+		 */
+		public Instant getTokensAvailableAt()
+		{
+			return tokensAvailableAt;
+		}
+
+		/**
+		 * Returns the amount of time until the requested number of tokens will become available.
+		 *
+		 * @return the amount of time until the requested number of tokens will become available
+		 */
+		public Duration getTokensAvailableIn()
+		{
+			return Duration.between(requestedAt, tokensAvailableAt);
+		}
+
+		@Override
+		public String toString()
+		{
+			return "successful: " + isSuccessful() + ", tokensConsumed: " + tokensConsumed + ", tokensLeft: " +
+				tokensLeft + ", requestedAt: " + requestedAt + ", tokensAvailableAt: " + tokensAvailableAt;
+		}
 	}
 }
