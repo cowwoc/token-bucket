@@ -1,26 +1,37 @@
 [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.cowwoc.token-bucket/java/badge.svg)](https://search.maven.org/search?q=g:com.github.cowwoc.token-bucket)
 [![build-status](../../workflows/Build/badge.svg)](../../actions?query=workflow%3ABuild)
 
-# Token Bucket
-
-[![API](https://img.shields.io/badge/api_docs-5B45D5.svg)](https://cowwoc.github.io/token-bucket/1.1/docs/api/)
-[![Changelog](https://img.shields.io/badge/changelog-A345D5.svg)](wiki/Changelog.md)
-
 This is a Java implementation of the [Token Bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket).
 
-# Usage
+# Download
 
-## Maven
-
-Functionality of this package is contained in Java package `com.github.cowwoc.token-bucket`, and can be used
-using following Maven dependency:
-
+You can download this library from https://search.maven.org/search?q=g:com.github.cowwoc.token-bucket or using the following Maven dependency:
 ```
 <dependency>
   <groupId>com.github.cowwoc.token-bucket</groupId>
   <artifactId>token-bucket</artifactId>
   <version>1.0</version>
 </dependency>
+```
+
+# Usage
+
+```
+Bucket bucket = new Bucket();
+
+int tokensPerPeriod = 5;
+Duration period = Duration.ofSeconds(1);
+long initialTokens = 0;
+long maxTokens = 120;
+bucket.addLimit(new Limit(tokensPerPeriod, period, initialTokens, maxTokens));
+
+
+// Polls a server with a limit of 5 requests per second and a maximum burst of 120 requests at a time.
+while (true)
+{
+  bucket.consume(1);
+  client.pollServer();
+}
 ```
 
 # License
