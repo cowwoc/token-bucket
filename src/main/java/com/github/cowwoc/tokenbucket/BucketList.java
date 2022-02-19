@@ -21,8 +21,9 @@ import java.util.stream.Stream;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
- * A list of buckets.
- *
+ * A list of buckets that consumes tokens from the first bucket returned by the
+ * {@link SchedulingPolicy} that is available.
+ * <p>
  * <b>Thread safety</b>: This class is thread-safe.
  */
 public final class BucketList extends AbstractBucket
