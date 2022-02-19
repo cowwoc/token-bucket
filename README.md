@@ -1,7 +1,12 @@
 [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.cowwoc.token-bucket/java/badge.svg)](https://search.maven.org/search?q=g:com.github.cowwoc.token-bucket)
 [![build-status](../../workflows/Build/badge.svg)](../../actions?query=workflow%3ABuild)
 
-This is a Java implementation of the [Token Bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket).
+# <img src="wiki/bucket.svg" width=64 height=64 alt="checklist"> Token-Bucket
+
+[![API](https://img.shields.io/badge/api_docs-5B45D5.svg)](https://cowwoc.github.io/token-bucket/2.0/docs/api/)
+[![Changelog](https://img.shields.io/badge/changelog-A345D5.svg)](wiki/Changelog.md)
+
+A Java implementation of the [Token Bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket).
 
 # Download
 
@@ -39,3 +44,4 @@ while (true)
 # License
 
 * Code licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
+* Icons from www.svgrepo.com licensed under the CC0 License 
