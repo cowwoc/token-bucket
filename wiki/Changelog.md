@@ -1,7 +1,7 @@
 Minor updates involving cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
-## Version 2.0 - ?
+## Version 2.0 - 2022/02/19
 
 * Breaking changes:
     * `try/consume()` returns ConsumptionResult instead of boolean.

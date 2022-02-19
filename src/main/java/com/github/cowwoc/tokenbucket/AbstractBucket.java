@@ -10,6 +10,9 @@ import java.util.function.Function;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
+/**
+ * Functionality common to all buckets.
+ */
 public abstract class AbstractBucket
 {
 	/**

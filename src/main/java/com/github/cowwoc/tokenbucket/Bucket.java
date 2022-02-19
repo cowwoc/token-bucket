@@ -56,6 +56,7 @@ public final class Bucket extends AbstractBucket
 	 *
 	 * @param tokensPerPeriod the amount of tokens to add to the bucket every {@code period}
 	 * @param period          indicates how often {@code tokensPerPeriod} should be added to the bucket
+	 * @return a new {@code LimitAdder}
 	 * @throws IllegalArgumentException if {@code tokensPerPeriod} or {@code period} are negative or zero
 	 */
 	@CheckReturnValue
