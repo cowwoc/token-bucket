@@ -116,6 +116,8 @@ public final class Limit
 	}
 
 	/**
+	 * Returns the initial amount of tokens that the bucket starts with.
+	 *
 	 * @return the initial amount of tokens that the bucket starts with
 	 */
 	public long getInitialTokens()
@@ -127,7 +129,11 @@ public final class Limit
 	}
 
 	/**
-	 * @return the maximum amount of tokens that the bucket may hold before overflowing (subsequent tokens are discarded)
+	 * Returns the maximum amount of tokens that the bucket may hold before overflowing (subsequent tokens
+	 * are discarded).
+	 *
+	 * @return the maximum amount of tokens that the bucket may hold before overflowing (subsequent tokens
+	 * are discarded)
 	 */
 	public long getMaxTokens()
 	{
@@ -176,6 +182,8 @@ public final class Limit
 	}
 
 	/**
+	 * Returns the last time that tokens were refilled.
+	 *
 	 * @return the last time that tokens were refilled
 	 */
 	public Instant getLastRefilledAt()
@@ -366,6 +374,8 @@ public final class Limit
 		}
 
 		/**
+		 * Sets the amount of tokens to add to the bucket every {@code period}.
+		 *
 		 * @param tokensPerPeriod the amount of tokens to add to the bucket every {@code period}
 		 * @return this
 		 * @throws IllegalArgumentException if {@code tokensPerPeriod} is negative or zero
@@ -379,6 +389,8 @@ public final class Limit
 		}
 
 		/**
+		 * Indicates how often {@code tokensPerPeriod} should be added to the bucket.
+		 *
 		 * @param period indicates how often {@code tokensPerPeriod} should be added to the bucket
 		 * @return this
 		 * @throws IllegalArgumentException if {@code period} is negative or zero

@@ -107,12 +107,14 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
+	@CheckReturnValue
 	public Object getUserData()
 	{
 		return userData;
 	}
 
 	@Override
+	@CheckReturnValue
 	public ConsumptionResult tryConsume()
 	{
 		Instant requestedAt = Instant.now();
@@ -123,6 +125,7 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
+	@CheckReturnValue
 	public ConsumptionResult tryConsume(long tokens)
 	{
 		requireThat(tokens, "tokens").isNotNegative();
@@ -134,6 +137,7 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
+	@CheckReturnValue
 	public ConsumptionResult tryConsumeRange(long minimumTokens, long maximumTokens)
 	{
 		requireThat(minimumTokens, "minimumTokens").isNotNegative();
@@ -147,12 +151,14 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
+	@CheckReturnValue
 	public ConsumptionResult consume() throws InterruptedException
 	{
 		return consume(1);
 	}
 
 	@Override
+	@CheckReturnValue
 	public ConsumptionResult consume(long tokens) throws InterruptedException
 	{
 		requireThat(tokens, "tokens").isNotNegative();
@@ -161,6 +167,7 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
+	@CheckReturnValue
 	public ConsumptionResult consume(long tokens, long timeout, TimeUnit unit) throws InterruptedException
 	{
 		requireThat(tokens, "tokens").isNotNegative();
@@ -173,6 +180,7 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
+	@CheckReturnValue
 	public ConsumptionResult consumeRange(long minimumTokens,
 	                                      long maximumTokens) throws InterruptedException
 	{
@@ -184,6 +192,7 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
+	@CheckReturnValue
 	public ConsumptionResult consumeRange(long minimumTokens, long maximumTokens, long timeout,
 	                                      TimeUnit unit)
 		throws InterruptedException

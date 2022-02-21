@@ -125,6 +125,17 @@
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-javadoc-plugin</artifactId>
 				<version>${maven-javadoc-plugin.version}</version>
+				<executions>
+					<execution>
+						<id>default-cli</id>
+						<goals>
+							<goal>javadoc</goal>
+						</goals>
+						<configuration>
+							<show>public</show>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -213,6 +224,9 @@
 								<goals>
 									<goal>jar</goal>
 								</goals>
+								<configuration>
+									<show>public</show>
+								</configuration>
 							</execution>
 						</executions>
 					</plugin>

@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
@@ -235,6 +236,71 @@ public final class Bucket extends AbstractContainer
 	public ConfigurationUpdater updateConfiguration()
 	{
 		return new ConfigurationUpdater();
+	}
+
+	// Export Javadoc without exporting AbstractContainer
+	@Override
+	@CheckReturnValue
+	public Object getUserData()
+	{
+		return super.getUserData();
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult tryConsume()
+	{
+		return super.tryConsume();
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult tryConsume(long tokens)
+	{
+		return super.tryConsume(tokens);
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult tryConsumeRange(long minimumTokens, long maximumTokens)
+	{
+		return super.tryConsumeRange(minimumTokens, maximumTokens);
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult consume() throws InterruptedException
+	{
+		return super.consume();
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult consume(long tokens) throws InterruptedException
+	{
+		return super.consume(tokens);
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult consume(long tokens, long timeout, TimeUnit unit) throws InterruptedException
+	{
+		return super.consume(tokens, timeout, unit);
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult consumeRange(long minimumTokens, long maximumTokens) throws InterruptedException
+	{
+		return super.consumeRange(minimumTokens, maximumTokens);
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult consumeRange(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
+		throws InterruptedException
+	{
+		return super.consumeRange(minimumTokens, maximumTokens, timeout, unit);
 	}
 
 	@Override

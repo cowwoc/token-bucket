@@ -33,7 +33,7 @@ public final class ConsumptionResult
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if any of the arguments are negative. If
 	 *                                  {@code minimumTokensRequested > maximumTokensRequested}. If
-	 *                                  {@code tokensConsumed > 0 && tokensConsumed < minimumTokensRequested}
+	 *                                  {@code tokensConsumed > 0 && tokensConsumed < minimumTokensRequested}.
 	 */
 	public ConsumptionResult(Container container, long minimumTokensRequested,
 	                         long maximumTokensRequested, long tokensConsumed, Instant requestedAt,
