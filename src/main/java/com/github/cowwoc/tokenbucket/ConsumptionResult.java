@@ -13,34 +13,33 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 @SuppressWarnings("ClassCanBeRecord")
 public final class ConsumptionResult
 {
-	private final Bucket bucket;
+	private final Container container;
 	private final long minimumTokensRequested;
 	private final long maximumTokensRequested;
 	private final long tokensConsumed;
-	private final long tokensLeft;
 	private final Instant requestedAt;
 	private final Instant tokensAvailableAt;
 
 	/**
 	 * Creates a result of a request to consume tokens.
 	 *
-	 * @param bucket                 the bucket associated with the result
-	 * @param minimumTokensRequested the minimum number of tokens that were requested
-	 * @param maximumTokensRequested the maximum number of tokens that were requested
+	 * @param container              the container that gave up tokens
+	 * @param minimumTokensRequested the minimum number of tokens that were requested (inclusive)
+	 * @param maximumTokensRequested the maximum number of tokens that were requested (inclusive)
 	 * @param tokensConsumed         the number of tokens that were consumed
-	 * @param tokensLeft             the number of tokens that were left for consumption
-	 * @param requestedAt            the time at which the user requested to consume tokens
-	 * @param tokensAvailableAt      the time at which the requested tokens will become available
+	 * @param requestedAt            the time at which the tokens were requested
+	 * @param tokensAvailableAt      the time at which the requested tokens will become available. If tokens
+	 *                               were consumed, this value is equal to {@code requestedAt}.
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if any of the arguments are negative. If
 	 *                                  {@code minimumTokensRequested > maximumTokensRequested}. If
 	 *                                  {@code tokensConsumed > 0 && tokensConsumed < minimumTokensRequested}
 	 */
-	public ConsumptionResult(Bucket bucket, long minimumTokensRequested, long maximumTokensRequested,
-	                         long tokensConsumed, long tokensLeft, Instant requestedAt,
+	public ConsumptionResult(Container container, long minimumTokensRequested,
+	                         long maximumTokensRequested, long tokensConsumed, Instant requestedAt,
 	                         Instant tokensAvailableAt)
 	{
-		assertThat(bucket, "bucket").isNotNull();
+		assertThat(container, "container").isNotNull();
 		assertThat(minimumTokensRequested, "minimumTokensRequested").isNotNegative();
 		assertThat(maximumTokensRequested, "maximumTokensRequested").isNotNegative().
 			isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
@@ -50,32 +49,31 @@ public final class ConsumptionResult
 			requireThat(tokensConsumed, "tokensConsumed").
 				isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
 		}
-		assertThat(tokensLeft, "tokensLeft").isNotNegative();
 		assertThat(requestedAt, "requestedAt").isNotNull();
 		assertThat(tokensAvailableAt, "tokensAvailableAt").isNotNull();
-		this.bucket = bucket;
+		this.container = container;
 		this.minimumTokensRequested = minimumTokensRequested;
 		this.maximumTokensRequested = maximumTokensRequested;
 		this.tokensConsumed = tokensConsumed;
-		this.tokensLeft = tokensLeft;
 		this.requestedAt = requestedAt;
 		this.tokensAvailableAt = tokensAvailableAt;
 	}
 
 	/**
-	 * Returns the bucket associated with the result.
+	 * Returns the container that gave up tokens. If tokens were consumed from a single bucket, it is
+	 * returned. If tokens were consumed from multiple buckets, the highest common ancestor is returned.
 	 *
-	 * @return the bucket associated with the result
+	 * @return the container that gave up tokens
 	 */
-	public Bucket getBucket()
+	public Container getContainer()
 	{
-		return bucket;
+		return container;
 	}
 
 	/**
 	 * Returns the minimum number of tokens that were requested.
 	 *
-	 * @return the minimum number of tokens that were requested
+	 * @return the minimum number of tokens that were requested (inclusive)
 	 */
 	public long getMinimumTokensRequested()
 	{
@@ -85,7 +83,7 @@ public final class ConsumptionResult
 	/**
 	 * Returns the maximum number of tokens that were requested.
 	 *
-	 * @return the maximum number of tokens that were requested
+	 * @return the maximum number of tokens that were requested (inclusive)
 	 */
 	public long getMaximumTokensRequested()
 	{
@@ -113,17 +111,8 @@ public final class ConsumptionResult
 	}
 
 	/**
-	 * Returns the number of tokens that were left for consumption after processing the request.
-	 *
-	 * @return the number of tokens that were left for consumption after processing the request
-	 */
-	public long getTokensLeft()
-	{
-		return tokensLeft;
-	}
-
-	/**
-	 * Indicates when the requested number of tokens will become available.
+	 * Indicates when the requested number of tokens will become available. If tokens were consumed, this
+	 * value is equal to {@code requestedAt}.
 	 *
 	 * @return the time when the requested number of tokens will become available
 	 */
@@ -147,25 +136,24 @@ public final class ConsumptionResult
 	{
 		if (!(o instanceof ConsumptionResult other))
 			return false;
-		return other.bucket == bucket && other.minimumTokensRequested == minimumTokensRequested &&
-			other.maximumTokensRequested == maximumTokensRequested &&
-			other.tokensConsumed == tokensConsumed && other.tokensLeft == tokensLeft &&
+		return other.container == container && other.minimumTokensRequested == minimumTokensRequested &&
+			other.maximumTokensRequested == maximumTokensRequested && other.tokensConsumed == tokensConsumed &&
 			other.requestedAt.equals(requestedAt) && other.tokensAvailableAt.equals(tokensAvailableAt);
 	}
 
 	@Override
 	public int hashCode()
 	{
-		return Objects.hash(bucket, minimumTokensRequested, maximumTokensRequested, tokensConsumed, tokensLeft,
+		return Objects.hash(container, minimumTokensRequested, maximumTokensRequested, tokensConsumed,
 			requestedAt, tokensAvailableAt);
 	}
 
 	@Override
 	public String toString()
 	{
-		return "bucket: " + bucket + ", minimumTokensRequested: " + minimumTokensRequested +
+		return "successful: " + isSuccessful() + ", minimumTokensRequested: " + minimumTokensRequested +
 			", maximumTokensRequested: " + maximumTokensRequested + ", tokensConsumed: " + tokensConsumed +
-			", tokensLeft: " + tokensLeft + ", requestedAt: " + requestedAt + ", tokensAvailableAt: " +
-			tokensAvailableAt + ", isSuccessful: " + isSuccessful();
+			", requestedAt: " + requestedAt + ", tokensAvailableAt: " + tokensAvailableAt + ", container: " +
+			container;
 	}
 }

@@ -24,16 +24,30 @@ the following Maven dependency:
 # Usage
 
 ```
-Bucket bucket = new Bucket();
+// Allow 60 requests per minute, with a maximum burst of 120 requests.
+Bucket server1 = Bucket.builder().
+  addLimit(limit -> limit.
+    tokensPerPeriod(60).
+    period(Duration.ofMinute(1)).
+    maxTokens(120).
+    build()).
+  build();
 
-int tokensPerPeriod = 5;
-Duration period = Duration.ofSeconds(1);
-long initialTokens = 0;
-long maxTokens = 120;
-bucket.addLimit(new Limit(tokensPerPeriod, period, initialTokens, maxTokens));
+// Allow 60 requests per minute, with a maximum burst of 10 requests per second.
+Bucket server2 = Bucket.builder().
+  addLimit(limit -> limit.
+    tokensPerPeriod(60).
+    period(Duration.ofMinute(1)).
+    build()).
+  addLimit(limit -> limit.
+    tokensPerPeriod(10).
+    period(Duration.ofSecond(1)).
+    build()).
+  build();
 
+// Choose a server and send requests
+Bucket bucket = server1;
 
-// Polls a server with a limit of 5 requests per second and a maximum burst of 120 requests.
 while (true)
 {
   bucket.consume();

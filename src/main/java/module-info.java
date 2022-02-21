@@ -1,7 +1,8 @@
 /**
  * The main module.
  */
-module com.github.cowwoc.tokenbucket {
+module com.github.cowwoc.tokenbucket
+{
 	requires com.github.cowwoc.requirements.java;
 	requires org.slf4j;
 
