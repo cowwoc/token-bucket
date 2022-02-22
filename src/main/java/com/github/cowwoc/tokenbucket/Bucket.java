@@ -308,7 +308,7 @@ public final class Bucket extends AbstractContainer
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			return "limits: " + limits;
+			return "limits: " + limits + ", userData: " + userData;
 		}
 	}
 

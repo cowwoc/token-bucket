@@ -335,7 +335,7 @@ public final class Limit
 		return "tokensAvailable: " + tokensAvailable + ", lastRefilledAt: " + lastRefilledAt +
 			", tokensPerPeriod: " + tokensPerPeriod + ", period: " + period + ", initialTokens: " +
 			initialTokens + ", maxTokens: " + maxTokens + ", minimumToRefill: " + minimumToRefill +
-			"userData: " + userData;
+			", userData: " + userData;
 	}
 
 	/**
