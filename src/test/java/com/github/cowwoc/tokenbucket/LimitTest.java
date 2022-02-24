@@ -2,7 +2,7 @@ package com.github.cowwoc.tokenbucket;
 
 import org.testng.annotations.Test;
 
-import java.util.Set;
+import java.util.List;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
@@ -14,7 +14,7 @@ public final class LimitTest
 		Bucket bucket = Bucket.builder().
 			addLimit(limit -> limit.userData("limit").build()).
 			build();
-		Set<Limit> limits = bucket.getLimits();
+		List<Limit> limits = bucket.getLimits();
 		requireThat(limits, "limits").size().isEqualTo(1);
 		requireThat(limits.iterator().next().getUserData(), "limit.getUserData()").isEqualTo("limit");
 	}

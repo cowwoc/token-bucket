@@ -1,7 +1,7 @@
 Minor updates involving cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
-## Version 3.0 - ?
+## Version 3.0 - 2022/02/24
 
 * Breaking changes:
     * Limits
@@ -9,6 +9,8 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
         * Renamed maxTokens to maximumTokens.
         * Renamed minimumToRefill to minimumRefill.
         * Renamed minimumRefill to refillSize.
+    * Bucket
+        * Retain insertion order of limits.
     * Container
         * Renamed consumeRange() to consume().
         * Disallow consumption of zero tokens.

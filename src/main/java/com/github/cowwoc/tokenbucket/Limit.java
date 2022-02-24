@@ -19,7 +19,6 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
  */
 public final class Limit
 {
-	// Set by Bucket.Builder.build()
 	Bucket bucket;
 	ReadWriteLockAsResource lock;
 
@@ -219,6 +218,7 @@ public final class Limit
 	 */
 	long refill(Instant requestedAt)
 	{
+		lastRefilledAt = requestedAt;
 		Duration timeElapsed = Duration.between(startOfCurrentPeriod, requestedAt);
 		if (timeElapsed.isNegative())
 			return 0;
@@ -229,7 +229,6 @@ public final class Limit
 			tokensToAdd += numberOfPeriodsElapsed * tokensPerPeriod - tokensAddedInCurrentPeriod;
 			tokensAddedInCurrentPeriod = 0;
 			startOfCurrentPeriod = startOfCurrentPeriod.plus(period.multipliedBy(numberOfPeriodsElapsed));
-			lastRefilledAt = startOfCurrentPeriod;
 		}
 		Duration timeElapsedInPeriod = timeElapsed.minus(period.multipliedBy(numberOfPeriodsElapsed));
 		if (!timeElapsedInPeriod.isZero())
@@ -330,9 +329,6 @@ public final class Limit
 			assertThat(secondsToAdd, "secondsToAdd").isPositive();
 			availableAt = lastRefilledAt.plusSeconds(secondsToAdd);
 			assertThat(availableAt, "availableAt").isGreaterThan(requestedAt, "requestAt");
-//			log.debug("availableTokens: {}, tokensNeeded: {}, refillsNeeded: {}, periodPerRefill: {}, " +
-//					"secondsToAdd: {}, availableIn: {}", availableTokens, tokensNeeded, refillsNeeded,
-//				secondsPerRefill, secondsToAdd, Duration.between(requestedAt, availableAt));
 			tokensConsumed = 0;
 		}
 		else
@@ -380,8 +376,8 @@ public final class Limit
 		{
 			return "availableTokens: " + availableTokens + ", lastRefilledAt: " + lastRefilledAt +
 				", tokensPerPeriod: " + tokensPerPeriod + ", period: " + period + ", initialTokens: " +
-				initialTokens + ", maximumTokens: " + maximumTokens + ", refillSize: " + refillSize +
-				", userData: " + userData;
+				initialTokens + ", maximumTokens: " + maximumTokens + ", refillSize: " + refillSize + ", userData: " +
+				userData;
 		}
 	}
 
@@ -832,7 +828,7 @@ public final class Limit
 		 * Possible values include:
 		 * <ul>
 		 *   <li>{@code unchanged} to start {@code tokensPerPeriod} relative to the old configuration's period.</li>
-		 *   <li>{@code lastUpdatedAt} to start a new period immediately.</li>
+		 *   <li>{@code lastRefilledAt} to start a new period immediately.</li>
 		 * </ul>
 		 *
 		 * @return the time that the current period has started
@@ -848,8 +844,9 @@ public final class Limit
 		 * <p>
 		 * Possible values include:
 		 * <ul>
-		 *   <li>{@code unchanged} to start {@code tokensPerPeriod} relative to the old configuration's period.</li>
-		 *   <li>{@code lastUpdatedAt} to start a new period immediately.</li>
+		 *    <li>{@code unchanged} to start {@code tokensPerPeriod} relative to the old configuration's period
+		 *    .</li>
+		 *   <li>{@code lastRefilledAt} to start a new period immediately.</li>
 		 * </ul>
 		 *
 		 * @param startOfCurrentPeriod the time that the current period has started

@@ -33,7 +33,7 @@ public final class Bucket extends AbstractContainer
 {
 	private static final ContainerSecrets CONTAINER_SECRETS = SharedSecrets.INSTANCE.containerSecrets;
 	private final Logger log = LoggerFactory.getLogger(Bucket.class);
-	private Set<Limit> limits;
+	private List<Limit> limits;
 
 	/**
 	 * Builds a new bucket.
@@ -59,7 +59,7 @@ public final class Bucket extends AbstractContainer
 	{
 		super(lock, Bucket::tryConsume);
 		requireThat(limits, "limits").isNotEmpty();
-		this.limits = Set.copyOf(limits);
+		this.limits = List.copyOf(limits);
 		this.userData = userData;
 	}
 
@@ -101,7 +101,7 @@ public final class Bucket extends AbstractContainer
 		update.run();
 
 		newLimits.add(limit);
-		limits = Set.copyOf(newLimits);
+		limits = List.copyOf(newLimits);
 	}
 
 	@Override
@@ -113,9 +113,9 @@ public final class Bucket extends AbstractContainer
 	/**
 	 * Returns the limits associated with this bucket.
 	 *
-	 * @return an unmodifiable set
+	 * @return an unmodifiable list
 	 */
-	public Set<Limit> getLimits()
+	public List<Limit> getLimits()
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
@@ -176,7 +176,7 @@ public final class Bucket extends AbstractContainer
 		assertThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
 		assertThat(requestedAt, "requestedAt").isNotNull();
 		Bucket bucket = (Bucket) abstractBucket;
-		Set<Limit> limits = bucket.getLimits();
+		List<Limit> limits = bucket.getLimits();
 		for (Limit limit : limits)
 		{
 			requireThat(minimumTokens, nameOfMinimumTokens).
@@ -535,7 +535,7 @@ public final class Bucket extends AbstractContainer
 			{
 				CONTAINER_SECRETS.updateChild(parent, Bucket.this, () ->
 				{
-					Bucket.this.limits = Set.copyOf(limits);
+					Bucket.this.limits = List.copyOf(limits);
 					Bucket.this.userData = userData;
 				});
 				if (wakeConsumers)
