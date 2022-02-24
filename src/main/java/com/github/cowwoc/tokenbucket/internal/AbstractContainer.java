@@ -28,6 +28,12 @@ public abstract class AbstractContainer implements Container
 		SharedSecrets.INSTANCE.containerSecrets = new ContainerSecrets()
 		{
 			@Override
+			public void updateChild(AbstractContainer container, Object child, Runnable update)
+			{
+				container.updateChild(child, update);
+			}
+
+			@Override
 			public long getAvailableTokens(AbstractContainer container)
 			{
 				return container.getAvailableTokens();
@@ -116,7 +122,7 @@ public abstract class AbstractContainer implements Container
 	/**
 	 * The parent container. {@code null} if there is no parent.
 	 */
-	protected Parent parent;
+	protected AbstractContainer parent;
 	protected Object userData;
 
 	/**
@@ -133,6 +139,19 @@ public abstract class AbstractContainer implements Container
 		this.lock = lock;
 		this.consumptionFunction = consumptionFunction;
 		this.tokensUpdated = lock.newCondition();
+	}
+
+	/**
+	 * Returns the parent container.
+	 *
+	 * @return null if this is the highest-level container
+	 */
+	public Container getParent()
+	{
+		try (CloseableLock ignored = lock.readLock())
+		{
+			return parent;
+		}
 	}
 
 	@Override

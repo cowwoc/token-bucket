@@ -5,13 +5,14 @@ import org.testng.annotations.Test;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 public final class BucketTest
 {
 	@Test(expectedExceptions = IllegalArgumentException.class)
-	public void requireAtLeastOneLimit() throws IllegalArgumentException
+	public void requireAtLeastOneLimit()
 	{
 		Bucket.builder().build();
 	}
@@ -70,7 +71,7 @@ public final class BucketTest
 	}
 
 	@Test
-	public void negativeInitialTokens() throws IllegalArgumentException
+	public void negativeInitialTokens()
 	{
 		Bucket bucket = Bucket.builder().
 			addLimit(limit ->
@@ -90,7 +91,7 @@ public final class BucketTest
 	}
 
 	@Test
-	public void negativeAvailableTokens() throws IllegalArgumentException
+	public void negativeAvailableTokens()
 	{
 		Bucket bucket = Bucket.builder().
 			addLimit(limit ->
@@ -115,7 +116,7 @@ public final class BucketTest
 	}
 
 	@Test
-	public void consumeMinimumAvailableTokens() throws IllegalArgumentException
+	public void consumeMinimumAvailableTokens()
 	{
 		Bucket bucket = Bucket.builder().
 			addLimit(limit ->
@@ -138,7 +139,7 @@ public final class BucketTest
 	}
 
 	@Test
-	public void sleepPartialPeriod() throws IllegalArgumentException
+	public void sleepPartialPeriod()
 	{
 		// When tokensNeeded < tokensPerPeriod, simulateConsumption() incorrectly rounded periodsToSleep down
 		// to zero. This, in turn, caused an assertion error to get thrown.
@@ -158,5 +159,30 @@ public final class BucketTest
 			isEqualTo(0L);
 		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
 			isBetween(Duration.ZERO, Duration.ofMinutes(10));
+	}
+
+	@Test
+	public void bottleneckListIsMinimal()
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit ->
+				limit.tokensPerPeriod(1).
+					period(Duration.ofMinutes(1)).
+					minimumRefill(1).
+					userData("first").
+					build()).
+			addLimit(limit ->
+				limit.tokensPerPeriod(1).
+					period(Duration.ofMinutes(10)).
+					minimumRefill(1).
+					userData("second").
+					build()).
+			build();
+
+		ConsumptionResult consumptionResult = bucket.tryConsume(1);
+		List<Limit> bottleneck = consumptionResult.getBottleneck();
+		requireThat(bottleneck, "bottleneck").size().isEqualTo(1);
+		Limit limit = bottleneck.get(0);
+		requireThat(limit.getUserData(), "limit.getUserData()").isEqualTo("second");
 	}
 }

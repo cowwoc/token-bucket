@@ -14,11 +14,12 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
     * ConsumptionResult
         * Renamed getTokensAvailableAt() to getAvailableAt().
         * Renamed getTokensAvailableIn() to getAvailableIn().
+* New features
+    * Ability to look up existing values from Builder, ConfigurationUpdater classes.
+    * Ability to navigate from a Limit to its Bucket and a Container to its parent.
 * Improvements:
-    * Added getters to all ConfigurationUpdaters.
     * Don't wake up consumers unless the number of tokens is positive.
     * Allow negative Limit.initialTokens, availableTokens.
-    * Ability to look up existing values from Builder, ConfigurationUpdater classes.
 * Bugfixes:
     * ContainerList.updateConfiguration() was not updating the consumption policy.
 

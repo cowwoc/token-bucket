@@ -3,6 +3,11 @@ package com.github.cowwoc.tokenbucket;
 import com.github.cowwoc.requirements.Requirements;
 import org.testng.annotations.Test;
 
+import java.time.Duration;
+import java.util.List;
+
+import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
+
 public final class ContainerListTest
 {
 	@Test
@@ -293,5 +298,66 @@ public final class ContainerListTest
 		consumptionResult = parent.tryConsume(5);
 		requirements = requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isFalse();
+	}
+
+	@Test
+	public void consumeFromOneBottleneckListIsMinimal()
+	{
+		ContainerList containerList = ContainerList.builder().
+			consumeFromOne(SelectionPolicy.roundRobin()).
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.period(Duration.ofMinutes(1)).
+							userData("firstLimit").
+							build()).
+					userData("firstBucket").
+					build()).
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.period(Duration.ofMinutes(10)).
+							userData("secondLimit").
+							build()).
+					userData("secondBucket").
+					build()).
+			build();
+
+		ConsumptionResult consumptionResult = containerList.tryConsume(1);
+		List<Limit> bottleneck = consumptionResult.getBottleneck();
+		requireThat(bottleneck, "bottleneck").size().isEqualTo(1);
+		Limit limit = bottleneck.get(0);
+		requireThat(limit.getUserData(), "limit.getUserData()").isEqualTo("firstLimit");
+	}
+
+	@Test
+	public void consumeFromAllBottleneckListIsMinimal()
+	{
+		ContainerList containerList = ContainerList.builder().
+			consumeFromAll().
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.period(Duration.ofMinutes(1)).
+							userData("firstLimit").
+							build()).
+					userData("firstBucket").
+					build()).
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.initialTokens(1).
+							period(Duration.ofMinutes(10)).
+							userData("secondLimit").
+							build()).
+					addLimit(limit ->
+						limit.period(Duration.ofMinutes(1)).
+							userData("thirdLimit").
+							build()).
+					userData("secondBucket").
+					build()).
+			build();
+
+		ConsumptionResult consumptionResult = containerList.tryConsume(1);
+		List<Limit> bottleneck = consumptionResult.getBottleneck();
+		requireThat(bottleneck, "bottleneck").size().isEqualTo(2);
+		List<String> limitNames = bottleneck.stream().map(limit -> (String) limit.getUserData()).toList();
+		requireThat(limitNames, "limitNames").isEqualTo(List.of("firstLimit", "thirdLimit"));
 	}
 }

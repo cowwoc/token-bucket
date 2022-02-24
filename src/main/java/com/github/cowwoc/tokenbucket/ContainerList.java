@@ -153,7 +153,7 @@ public final class ContainerList extends AbstractContainer
 		if (parent == null)
 			update.run();
 		else
-			parent.updateChild(this, update);
+			CONTAINER_SECRETS.updateChild(parent, this, update);
 	}
 
 	@Override
@@ -580,7 +580,7 @@ public final class ContainerList extends AbstractContainer
 				return;
 			try (CloseableLock ignored = lock.writeLock())
 			{
-				parent.updateChild(ContainerList.this, () ->
+				CONTAINER_SECRETS.updateChild(parent, ContainerList.this, () ->
 				{
 					ContainerList.this.children = children;
 					ContainerList.this.consumptionPolicy = consumptionPolicy;

@@ -89,6 +89,19 @@ public final class Limit
 	}
 
 	/**
+	 * Returns the bucket containing this limit.
+	 *
+	 * @return the bucket containing this limit
+	 */
+	public Bucket getBucket()
+	{
+		try (CloseableLock ignored = lock.readLock())
+		{
+			return bucket;
+		}
+	}
+
+	/**
 	 * Returns the number of tokens to add every {@code period}.
 	 *
 	 * @return the number of tokens to add every {@code period}
