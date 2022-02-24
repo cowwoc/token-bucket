@@ -3,10 +3,12 @@ package com.github.cowwoc.tokenbucket.internal;
 import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.ConsumptionResult;
 import com.github.cowwoc.tokenbucket.Container;
+import com.github.cowwoc.tokenbucket.Limit;
 import org.slf4j.Logger;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -29,6 +31,12 @@ public abstract class AbstractContainer implements Container
 			public long getAvailableTokens(AbstractContainer container)
 			{
 				return container.getAvailableTokens();
+			}
+
+			@Override
+			public List<Limit> getLimitsWithInsufficientTokens(AbstractContainer container, long tokens)
+			{
+				return container.getLimitsWithInsufficientTokens(tokens);
 			}
 
 			@Override
@@ -72,6 +80,14 @@ public abstract class AbstractContainer implements Container
 	 * @return the maximum number of tokens that this container can ever hold
 	 */
 	protected abstract long getMaximumTokens();
+
+	/**
+	 * Returns the list of limits with less than the specified number of tokens.
+	 *
+	 * @param tokens the minimum number of tokens to consume
+	 * @return the list of limits with less than the specified number of tokens
+	 */
+	protected abstract List<Limit> getLimitsWithInsufficientTokens(long tokens);
 
 	/**
 	 * @return the logger associated with this bucket

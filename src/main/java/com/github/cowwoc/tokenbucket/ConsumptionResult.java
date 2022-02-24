@@ -2,6 +2,7 @@ package com.github.cowwoc.tokenbucket;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
@@ -19,6 +20,7 @@ public final class ConsumptionResult
 	private final long tokensConsumed;
 	private final Instant requestedAt;
 	private final Instant availableAt;
+	private final List<Limit> bottleneck;
 
 	/**
 	 * Creates a result of a request to consume tokens.
@@ -30,6 +32,8 @@ public final class ConsumptionResult
 	 * @param requestedAt            the time at which the tokens were requested
 	 * @param availableAt            the time at which the requested tokens will become available. If tokens
 	 *                               were consumed, this value is equal to {@code requestedAt}.
+	 * @param bottleneck             the list of Limits that are preventing tokens from being consumed (empty if
+	 *                               none)
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code minimumTokensRequested} or {@code maximumTokensRequests}
 	 *                                  are negative or zero. If {@code tokensConsumed} is negative. If
@@ -37,7 +41,8 @@ public final class ConsumptionResult
 	 *                                  {@code tokensConsumed > 0 && tokensConsumed < minimumTokensRequested}.
 	 */
 	public ConsumptionResult(Container container, long minimumTokensRequested, long maximumTokensRequested,
-	                         long tokensConsumed, Instant requestedAt, Instant availableAt)
+	                         long tokensConsumed, Instant requestedAt, Instant availableAt,
+	                         List<Limit> bottleneck)
 	{
 		assertThat(container, "container").isNotNull();
 		assertThat(minimumTokensRequested, "minimumTokensRequested").isPositive();
@@ -51,12 +56,14 @@ public final class ConsumptionResult
 		}
 		assertThat(requestedAt, "requestedAt").isNotNull();
 		assertThat(availableAt, "AvailableAt").isNotNull();
+		assertThat(bottleneck, "bottleneck").isNotNull();
 		this.container = container;
 		this.minimumTokensRequested = minimumTokensRequested;
 		this.maximumTokensRequested = maximumTokensRequested;
 		this.tokensConsumed = tokensConsumed;
 		this.requestedAt = requestedAt;
 		this.availableAt = availableAt;
+		this.bottleneck = bottleneck;
 	}
 
 	/**
@@ -131,6 +138,16 @@ public final class ConsumptionResult
 		return Duration.between(requestedAt, availableAt);
 	}
 
+	/**
+	 * Returns the list of limits that are preventing tokens from being consumed.
+	 *
+	 * @return empty if tokens were consumed
+	 */
+	public List<Limit> getBottleneck()
+	{
+		return bottleneck;
+	}
+
 	@Override
 	public boolean equals(Object o)
 	{
@@ -138,14 +155,15 @@ public final class ConsumptionResult
 			return false;
 		return other.container == container && other.minimumTokensRequested == minimumTokensRequested &&
 			other.maximumTokensRequested == maximumTokensRequested && other.tokensConsumed == tokensConsumed &&
-			other.requestedAt.equals(requestedAt) && other.availableAt.equals(availableAt);
+			other.requestedAt.equals(requestedAt) && other.availableAt.equals(availableAt) &&
+			other.getBottleneck().equals(bottleneck);
 	}
 
 	@Override
 	public int hashCode()
 	{
 		return Objects.hash(container, minimumTokensRequested, maximumTokensRequested, tokensConsumed,
-			requestedAt, availableAt);
+			requestedAt, availableAt, bottleneck);
 	}
 
 	@Override
@@ -153,6 +171,7 @@ public final class ConsumptionResult
 	{
 		return "successful: " + isSuccessful() + ", minimumTokensRequested: " + minimumTokensRequested +
 			", maximumTokensRequested: " + maximumTokensRequested + ", tokensConsumed: " + tokensConsumed +
-			", requestedAt: " + requestedAt + ", availableAt: " + availableAt + ", container: " + container;
+			", requestedAt: " + requestedAt + ", availableAt: " + availableAt + ", bottleneck: " + bottleneck +
+			", container: " + container;
 	}
 }

@@ -34,12 +34,12 @@ public final class ContainerList extends AbstractContainer
 				ContainerList containerList = (ContainerList) abstractBucket;
 				AbstractContainer firstBucket = null;
 				ConsumptionResult earliestConsumption = null;
-				List<AbstractContainer> containers = containerList.children;
-				assertThat(containers, "containers").isNotEmpty();
+				List<AbstractContainer> children = containerList.children;
+				assertThat(children, "children").isNotEmpty();
 
 				while (true)
 				{
-					AbstractContainer container = selectionPolicy.nextContainer(containers);
+					AbstractContainer container = selectionPolicy.nextContainer(children);
 					if (container == firstBucket)
 					{
 						if (earliestConsumption == null)
@@ -71,28 +71,31 @@ public final class ContainerList extends AbstractContainer
 		(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, abstractBucket) ->
 		{
 			ContainerList containerList = (ContainerList) abstractBucket;
-			List<AbstractContainer> buckets = containerList.children;
-			assertThat(buckets, "buckets").isNotEmpty();
+			List<AbstractContainer> children = containerList.children;
+			assertThat(children, "children").isNotEmpty();
 			requireThat(minimumTokens, nameOfMinimumTokens).
 				isLessThanOrEqualTo(containerList.getMaximumTokens(), "containerList.getMaximumTokens()");
 
 			long tokensToConsume = maximumTokens;
-			for (AbstractContainer bucket : buckets)
-				tokensToConsume = Math.min(tokensToConsume, CONTAINER_SECRETS.getAvailableTokens(bucket));
+			for (AbstractContainer child : children)
+				tokensToConsume = Math.min(tokensToConsume, CONTAINER_SECRETS.getAvailableTokens(child));
 			if (tokensToConsume < minimumTokens)
 			{
+				List<Limit> bottleneck = new ArrayList<>();
+				for (AbstractContainer child : children)
+					bottleneck.addAll(CONTAINER_SECRETS.getLimitsWithInsufficientTokens(child, minimumTokens));
 				return new ConsumptionResult(containerList, minimumTokens, maximumTokens, 0,
-					requestedAt, requestedAt);
+					requestedAt, requestedAt, bottleneck);
 			}
 
-			for (AbstractContainer bucket : buckets)
+			for (AbstractContainer bucket : children)
 			{
 				ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(bucket, tokensToConsume,
 					tokensToConsume, nameOfMinimumTokens, requestedAt);
 				assertThat(consumptionResult.isSuccessful(), "consumptionResult").isTrue();
 			}
 			return new ConsumptionResult(containerList, minimumTokens, maximumTokens, tokensToConsume,
-				requestedAt, requestedAt);
+				requestedAt, requestedAt, List.of());
 		};
 
 	/**
@@ -175,12 +178,19 @@ public final class ContainerList extends AbstractContainer
 	@Override
 	protected long getAvailableTokens()
 	{
-		if (children.isEmpty())
-			return 0;
 		long availableTokens = Long.MAX_VALUE;
 		for (AbstractContainer child : children)
 			availableTokens = Math.min(availableTokens, CONTAINER_SECRETS.getAvailableTokens(child));
 		return availableTokens;
+	}
+
+	@Override
+	protected List<Limit> getLimitsWithInsufficientTokens(long tokens)
+	{
+		List<Limit> result = new ArrayList<>();
+		for (AbstractContainer child : children)
+			result.addAll(CONTAINER_SECRETS.getLimitsWithInsufficientTokens(child, tokens));
+		return result;
 	}
 
 	@Override

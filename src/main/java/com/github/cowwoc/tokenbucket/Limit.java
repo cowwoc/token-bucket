@@ -2,7 +2,6 @@ package com.github.cowwoc.tokenbucket;
 
 import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
-import com.github.cowwoc.tokenbucket.internal.Parent;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
 
 import java.time.Duration;
@@ -19,7 +18,7 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 public final class Limit
 {
 	// Set by Bucket.Builder.build()
-	Parent parent;
+	Bucket bucket;
 	ReadWriteLockAsResource lock;
 
 	long tokensPerPeriod;
@@ -901,7 +900,7 @@ public final class Limit
 				return;
 			try (CloseableLock ignored = lock.writeLock())
 			{
-				parent.updateChild(Limit.this, () ->
+				bucket.updateChild(Limit.this, () ->
 				{
 					Limit.this.tokensPerPeriod = tokensPerPeriod;
 					Limit.this.period = period;

@@ -10,8 +10,10 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -61,8 +63,6 @@ public final class Bucket extends AbstractContainer
 	@Override
 	protected long getAvailableTokens()
 	{
-		if (limits.isEmpty())
-			return 0;
 		long availableTokens = Long.MAX_VALUE;
 		for (Limit limit : limits)
 			availableTokens = Math.min(availableTokens, limit.getAvailableTokens());
@@ -70,10 +70,18 @@ public final class Bucket extends AbstractContainer
 	}
 
 	@Override
+	protected List<Limit> getLimitsWithInsufficientTokens(long tokens)
+	{
+		List<Limit> result = new ArrayList<>();
+		for (Limit limit : limits)
+			if (limit.getAvailableTokens() < tokens)
+				result.add(limit);
+		return result;
+	}
+
+	@Override
 	protected long getMaximumTokens()
 	{
-		if (limits.isEmpty())
-			return 0;
 		long maximumTokens = Long.MAX_VALUE;
 		for (Limit limit : limits)
 			maximumTokens = Math.min(maximumTokens, limit.getMaximumTokens());
@@ -175,27 +183,36 @@ public final class Bucket extends AbstractContainer
 		long tokensConsumed = Long.MAX_VALUE;
 		ConsumptionSimulation longestDelay = new ConsumptionSimulation(tokensConsumed, requestedAt, requestedAt);
 		Comparator<Duration> comparator = Comparator.naturalOrder();
+		Limit bottleneck = null;
 		for (Limit limit : limits)
 		{
 			ConsumptionSimulation newConsumption = limit.simulateConsumption(minimumTokens, maximumTokens, requestedAt);
 			tokensConsumed = Math.min(tokensConsumed, newConsumption.getTokensConsumed());
 			if (comparator.compare(newConsumption.getAvailableIn(), longestDelay.getAvailableIn()) > 0)
+			{
 				longestDelay = newConsumption;
+				bottleneck = limit;
+			}
 		}
 		if (tokensConsumed > 0)
 		{
 			// If there are any remaining tokens after consumption then wake up other consumers
-			long availableTokens = Long.MAX_VALUE;
+			long minimumAvailableTokens = Long.MAX_VALUE;
 			for (Limit limit : limits)
-				availableTokens = Math.min(availableTokens, limit.consume(tokensConsumed));
-			if (availableTokens > 0)
+			{
+				long availableTokens = limit.consume(tokensConsumed);
+				if (availableTokens < minimumAvailableTokens)
+					minimumAvailableTokens = availableTokens;
+			}
+			if (minimumAvailableTokens > 0)
 				bucket.tokensUpdated.signalAll();
 			return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
-				requestedAt);
+				requestedAt, List.of());
 		}
 		assertThat(longestDelay.getTokensConsumed(), "longestDelay.getTokensConsumed()").isZero();
+		assert (bottleneck != null);
 		return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
-			longestDelay.getAvailableAt());
+			longestDelay.getAvailableAt(), List.of(bottleneck));
 	}
 
 	/**
@@ -375,7 +392,7 @@ public final class Bucket extends AbstractContainer
 				Bucket bucket = new Bucket(limits, userData, lock);
 				for (Limit limit : limits)
 				{
-					limit.parent = bucket::updateChild;
+					limit.bucket = bucket;
 					limit.lock = bucket.lock;
 				}
 				consumer.accept(bucket);
@@ -467,7 +484,7 @@ public final class Bucket extends AbstractContainer
 		@CheckReturnValue
 		public ConfigurationUpdater clear()
 		{
-			if (this.limits.isEmpty())
+			if (limits.isEmpty())
 				return this;
 			changed = true;
 			limits.clear();
