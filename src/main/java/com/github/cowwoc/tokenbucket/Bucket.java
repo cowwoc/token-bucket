@@ -178,7 +178,7 @@ public final class Bucket extends AbstractContainer
 		for (Limit limit : limits)
 		{
 			ConsumptionSimulation newConsumption = limit.simulateConsumption(minimumTokens, maximumTokens, requestedAt);
-			tokensConsumed = Math.min(tokensConsumed, newConsumption.getTokensAvailable());
+			tokensConsumed = Math.min(tokensConsumed, newConsumption.getTokensConsumed());
 			if (comparator.compare(newConsumption.getAvailableIn(), longestDelay.getAvailableIn()) > 0)
 				longestDelay = newConsumption;
 		}
@@ -193,7 +193,7 @@ public final class Bucket extends AbstractContainer
 			return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
 				requestedAt);
 		}
-		assertThat(longestDelay.getTokensAvailable(), "longestDelay.getTokensConsumed()").isZero();
+		assertThat(longestDelay.getTokensConsumed(), "longestDelay.getTokensConsumed()").isZero();
 		return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
 			longestDelay.getAvailableAt());
 	}

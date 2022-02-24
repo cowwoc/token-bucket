@@ -136,4 +136,27 @@ public final class BucketTest
 		requireThat(consumptionResult.getTokensConsumed(), "consumptionResult.getTokensConsumed()").
 			isEqualTo(10L);
 	}
+
+	@Test
+	public void sleepPartialPeriod() throws IllegalArgumentException
+	{
+		// When tokensNeeded < tokensPerPeriod, simulateConsumption() incorrectly rounded periodsToSleep down
+		// to zero. This, in turn, caused an assertion error to get thrown.
+		Bucket bucket = Bucket.builder().
+			addLimit(limit ->
+				limit.initialTokens(0).
+					period(Duration.ofMinutes(10)).
+					tokensPerPeriod(6000).
+					build()).
+			build();
+
+		Limit limit = bucket.getLimits().iterator().next();
+		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").isZero();
+
+		ConsumptionResult consumptionResult = bucket.tryConsume();
+		requireThat(consumptionResult.getTokensConsumed(), "consumptionResult.getTokensConsumed()").
+			isEqualTo(0L);
+		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
+			isBetween(Duration.ZERO, Duration.ofMinutes(10));
+	}
 }

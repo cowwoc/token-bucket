@@ -311,9 +311,10 @@ public final class Limit
 		if (availableTokens < minimumTokens)
 		{
 			long tokensNeeded = minimumTokens - availableTokens;
-			long periodsToSleep = tokensNeeded / tokensPerPeriod;
-			Instant lastRefillTime = lastRefilledAt;
-			availableAt = lastRefillTime.plus(period.multipliedBy(periodsToSleep));
+			double minimumRefillsNeeded = (double) tokensNeeded / minimumTokens;
+			double periodPerRefill = (double) minimumRefill / tokensPerPeriod;
+			long secondsToAdd = (long) Math.ceil(period.toSeconds() * minimumRefillsNeeded * periodPerRefill);
+			availableAt = lastRefilledAt.plusSeconds(secondsToAdd);
 			tokensConsumed = 0;
 		}
 		else
@@ -925,7 +926,7 @@ public final class Limit
 	@SuppressWarnings("ClassCanBeRecord")
 	static final class ConsumptionSimulation
 	{
-		private final long tokensAvailable;
+		private final long tokensConsumed;
 		private final Instant requestedAt;
 		private final Instant availableAt;
 
@@ -943,7 +944,7 @@ public final class Limit
 			assertThat(tokensConsumed, "tokensConsumed").isNotNegative();
 			assertThat(requestedAt, "requestedAt").isNotNull();
 			assertThat(availableAt, "availableAt").isNotNull();
-			this.tokensAvailable = tokensConsumed;
+			this.tokensConsumed = tokensConsumed;
 			this.requestedAt = requestedAt;
 			this.availableAt = availableAt;
 		}
@@ -955,7 +956,7 @@ public final class Limit
 		 */
 		public boolean isSuccessful()
 		{
-			return tokensAvailable >= 0;
+			return tokensConsumed >= 0;
 		}
 
 		/**
@@ -963,9 +964,9 @@ public final class Limit
 		 *
 		 * @return the number of tokens that were consumed by the request
 		 */
-		public long getTokensAvailable()
+		public long getTokensConsumed()
 		{
-			return tokensAvailable;
+			return tokensConsumed;
 		}
 
 		/**
@@ -991,7 +992,7 @@ public final class Limit
 		@Override
 		public String toString()
 		{
-			return "successful: " + isSuccessful() + ", tokensConsumed: " + tokensAvailable + ", requestedAt: " +
+			return "successful: " + isSuccessful() + ", tokensConsumed: " + tokensConsumed + ", requestedAt: " +
 				requestedAt + ", availableAt: " + availableAt;
 		}
 	}
