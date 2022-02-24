@@ -12,12 +12,19 @@ public interface ContainerSecrets
 {
 	/**
 	 * Returns the number of tokens that are available, without triggering a refill.
-	 * <p>
 	 *
 	 * @param container the container
-	 *                  Returns the number of tokens that are available
+	 * @return the number of tokens that are available
 	 */
-	long getTokensAvailable(AbstractContainer container);
+	long getAvailableTokens(AbstractContainer container);
+
+	/**
+	 * Returns the maximum number of tokens that this container can ever hold.
+	 *
+	 * @param container the container
+	 * @return the maximum number of tokens that this container can ever hold
+	 */
+	long getMaximumTokens(AbstractContainer container);
 
 	/**
 	 * Attempts to consume {@code [minimumTokens, maximumTokens]}. Consumption is not guaranteed to be fair.
@@ -28,10 +35,11 @@ public interface ContainerSecrets
 	 * @param requestedAt   the time at which the tokens were requested
 	 * @return the minimum amount of time until the requested number of tokens will be available
 	 * @throws NullPointerException     if any of the arguments are null
-	 * @throws IllegalArgumentException if {@code minimumTokens > maximumTokens}. If one of the limits has a
-	 *                                  {@code maxTokens} that is less than {@code minimumTokensRequested}.
+	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If
+	 *                                  {@code minimumTokens > maximumTokens}. If one of the limits has a
+	 *                                  {@code maximumTokens} that is less than {@code minimumTokens}.
 	 */
 	@CheckReturnValue
-	ConsumptionResult tryConsumeRange(AbstractContainer container, long minimumTokens, long maximumTokens,
-	                                  Instant requestedAt);
+	ConsumptionResult tryConsume(AbstractContainer container, long minimumTokens, long maximumTokens,
+	                             String nameOfMinimumTokens, Instant requestedAt);
 }

@@ -29,8 +29,9 @@ public interface Container
 	 *
 	 * @param tokens the number of tokens to consume
 	 * @return the result of the operation
-	 * @throws IllegalArgumentException if {@code tokens} is negative. If one of the limits has
-	 *                                  {@code maxTokens} that is less than {@code tokens}.
+	 * @throws IllegalArgumentException if {@code tokens} is negative or zero. If the request can never
+	 *                                  succeed because the container cannot hold the requested number of
+	 *                                  tokens.
 	 */
 	@CheckReturnValue
 	ConsumptionResult tryConsume(long tokens);
@@ -41,11 +42,13 @@ public interface Container
 	 * @param minimumTokens the minimum number of tokens to consume (inclusive)
 	 * @param maximumTokens the maximum number of tokens to consume (inclusive)
 	 * @return the result of the operation
-	 * @throws IllegalArgumentException if {@code minimumTokens > maximumTokens}. If one of the limits has a
-	 *                                  {@code maxTokens} that is less than {@code minimumTokensRequested}.
+	 * @throws IllegalArgumentException if the arguments are negative or zero. If
+	 *                                  {@code minimumTokens > maximumTokens}. If the request can never
+	 *                                  succeed because the container cannot hold the requested number of
+	 *                                  tokens.
 	 */
 	@CheckReturnValue
-	ConsumptionResult tryConsumeRange(long minimumTokens, long maximumTokens);
+	ConsumptionResult tryConsume(long minimumTokens, long maximumTokens);
 
 	/**
 	 * Consumes a single token.
@@ -61,9 +64,11 @@ public interface Container
 	 *
 	 * @param tokens the number of tokens to consume
 	 * @return the result of the operation
-	 * @throws IllegalArgumentException if {@code tokens} is negative. If one of the limits has
-	 *                                  {@code maxTokens} that is less than {@code tokens}.
-	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become available
+	 * @throws IllegalArgumentException if {@code tokens} is negative or zero. If the request can never
+	 *                                  succeed because the container cannot hold the requested number of
+	 *                                  tokens.
+	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
+	 *                                  available
 	 */
 	@CheckReturnValue
 	ConsumptionResult consume(long tokens) throws InterruptedException;
@@ -76,9 +81,9 @@ public interface Container
 	 * @param unit    the unit of {@code timeout}
 	 * @return the result of the operation
 	 * @throws NullPointerException     if {@code unit} is null
-	 * @throws IllegalArgumentException if {@code tokens} or {@code timeout} are negative or zero. If one of
-	 *                                  the bucket limits has {@code maxTokens} that is less than
-	 *                                  {@code tokens}.
+	 * @throws IllegalArgumentException if {@code tokens} or {@code timeout} are negative or zero. If the
+	 *                                  request can never succeed because the container cannot hold the
+	 *                                  requested number of tokens.
 	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
 	 *                                  available
 	 */
@@ -94,13 +99,14 @@ public interface Container
 	 * @return the result of the operation
 	 * @throws NullPointerException     if {@code unit} is null
 	 * @throws IllegalArgumentException if {@code tokens} or {@code timeout} are negative or zero. If
-	 *                                  {@code minimumTokens > maximumTokens}. If one of the bucket limits
-	 *                                  has {@code maxTokens} that is less than {@code minimumTokens}.
+	 *                                  {@code minimumTokens > maximumTokens}. If the request can never
+	 *                                  succeed because the container cannot hold the requested number of
+	 *                                  tokens.
 	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
 	 *                                  available
 	 */
 	@CheckReturnValue
-	ConsumptionResult consumeRange(long minimumTokens, long maximumTokens) throws InterruptedException;
+	ConsumptionResult consume(long minimumTokens, long maximumTokens) throws InterruptedException;
 
 	/**
 	 * Blocks until {@code [minimumTokens, maximumTokens]} are consumed. Consumption is not guaranteed to
@@ -113,12 +119,13 @@ public interface Container
 	 * @return the result of the operation
 	 * @throws NullPointerException     if {@code unit} is null
 	 * @throws IllegalArgumentException if {@code tokens} or {@code timeout} are negative or zero. If
-	 *                                  {@code minimumTokens > maximumTokens}. If one of the bucket limits has a
-	 *                                  {@code maxTokens} that is less than {@code minimumTokens}.
+	 *                                  {@code minimumTokens > maximumTokens}. If the request can never
+	 *                                  succeed because the container cannot hold the requested number of
+	 *                                  tokens.
 	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
 	 *                                  available
 	 */
 	@CheckReturnValue
-	ConsumptionResult consumeRange(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
+	ConsumptionResult consume(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
 		throws InterruptedException;
 }

@@ -50,16 +50,16 @@ public final class SelectionPolicy
 	}
 
 	/**
-	 * Selects the next bucket to perform a task.
+	 * Selects the next container to perform a task.
 	 *
-	 * @param buckets a list of buckets
-	 * @return the next bucket to perform a task
-	 * @throws NullPointerException     if {@code buckets} is null
-	 * @throws IllegalArgumentException if {@code buckets} is empty
+	 * @param containers a list of container
+	 * @return the next container to perform a task
+	 * @throws NullPointerException     if {@code containers} is null
+	 * @throws IllegalArgumentException if {@code containers} is empty
 	 */
-	AbstractContainer nextBucket(List<AbstractContainer> buckets)
+	AbstractContainer nextContainer(List<AbstractContainer> containers)
 	{
-		assertThat(buckets, "buckets").isNotEmpty();
-		return nextBucket.apply(buckets);
+		assertThat(containers, "containers").isNotEmpty();
+		return nextBucket.apply(containers);
 	}
 }

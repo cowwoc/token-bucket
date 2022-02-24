@@ -33,6 +33,16 @@ public final class BucketTest
 			build();
 	}
 
+	@Test(expectedExceptions = IllegalArgumentException.class)
+	public void consumeMoreThanLimitMinimum()
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit -> limit.maximumTokens(10).build()).
+			build();
+		//noinspection ResultOfMethodCallIgnored
+		bucket.tryConsume(11, 20);
+	}
+
 	@Test
 	public void roundingError()
 	{
@@ -42,7 +52,7 @@ public final class BucketTest
 			addLimit(limit ->
 				limit.tokensPerPeriod(tokens).
 					period(Duration.ofSeconds(seconds)).
-					minimumToRefill(1).
+					minimumRefill(1).
 					build()).
 			build();
 
@@ -55,7 +65,75 @@ public final class BucketTest
 			requestAt = requestAt.plus(timeIncrement);
 			limit.refill(requestAt);
 		}
-		requireThat(limit.getTokensAvailable(), "limit.getTokensAvailable()").
+		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").
 			isEqualTo(limit.getTokensPerPeriod());
+	}
+
+	@Test
+	public void negativeInitialTokens() throws IllegalArgumentException
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit ->
+				limit.initialTokens(-100).
+					tokensPerPeriod(1).
+					period(Duration.ofSeconds(1)).
+					minimumRefill(1).
+					build()).
+			build();
+
+		Limit limit = bucket.getLimits().iterator().next();
+		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").isNegative();
+
+		ConsumptionResult consumptionResult = bucket.tryConsume();
+		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
+			isGreaterThanOrEqualTo(Duration.ofSeconds(90));
+	}
+
+	@Test
+	public void negativeAvailableTokens() throws IllegalArgumentException
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit ->
+				limit.initialTokens(1).
+					tokensPerPeriod(1).
+					period(Duration.ofSeconds(1)).
+					minimumRefill(1).
+					build()).
+			build();
+
+		Limit limit = bucket.getLimits().iterator().next();
+		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").isPositive();
+		ConsumptionResult consumptionResult = bucket.tryConsume();
+		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
+			isEqualTo(Duration.ZERO);
+
+		limit.updateConfiguration().availableTokens(-100).apply();
+		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").isNegative();
+		consumptionResult = bucket.tryConsume();
+		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
+			isGreaterThanOrEqualTo(Duration.ofSeconds(90));
+	}
+
+	@Test
+	public void consumeMinimumAvailableTokens() throws IllegalArgumentException
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit ->
+				limit.initialTokens(10).
+					tokensPerPeriod(1).
+					period(Duration.ofSeconds(1)).
+					minimumRefill(1).
+					build()).
+			addLimit(limit ->
+				limit.initialTokens(100).
+					tokensPerPeriod(1).
+					period(Duration.ofSeconds(1)).
+					minimumRefill(1).
+					build()).
+			build();
+
+		ConsumptionResult consumptionResult = bucket.tryConsume(1, 1000);
+		requireThat(consumptionResult.getTokensConsumed(), "consumptionResult.getTokensConsumed()").
+			isEqualTo(10L);
 	}
 }

@@ -18,7 +18,7 @@ public final class ConsumptionResult
 	private final long maximumTokensRequested;
 	private final long tokensConsumed;
 	private final Instant requestedAt;
-	private final Instant tokensAvailableAt;
+	private final Instant availableAt;
 
 	/**
 	 * Creates a result of a request to consume tokens.
@@ -28,20 +28,20 @@ public final class ConsumptionResult
 	 * @param maximumTokensRequested the maximum number of tokens that were requested (inclusive)
 	 * @param tokensConsumed         the number of tokens that were consumed
 	 * @param requestedAt            the time at which the tokens were requested
-	 * @param tokensAvailableAt      the time at which the requested tokens will become available. If tokens
+	 * @param availableAt            the time at which the requested tokens will become available. If tokens
 	 *                               were consumed, this value is equal to {@code requestedAt}.
 	 * @throws NullPointerException     if any of the arguments are null
-	 * @throws IllegalArgumentException if any of the arguments are negative. If
+	 * @throws IllegalArgumentException if {@code minimumTokensRequested} or {@code maximumTokensRequests}
+	 *                                  are negative or zero. If {@code tokensConsumed} is negative. If
 	 *                                  {@code minimumTokensRequested > maximumTokensRequested}. If
 	 *                                  {@code tokensConsumed > 0 && tokensConsumed < minimumTokensRequested}.
 	 */
-	public ConsumptionResult(Container container, long minimumTokensRequested,
-	                         long maximumTokensRequested, long tokensConsumed, Instant requestedAt,
-	                         Instant tokensAvailableAt)
+	public ConsumptionResult(Container container, long minimumTokensRequested, long maximumTokensRequested,
+	                         long tokensConsumed, Instant requestedAt, Instant availableAt)
 	{
 		assertThat(container, "container").isNotNull();
-		assertThat(minimumTokensRequested, "minimumTokensRequested").isNotNegative();
-		assertThat(maximumTokensRequested, "maximumTokensRequested").isNotNegative().
+		assertThat(minimumTokensRequested, "minimumTokensRequested").isPositive();
+		assertThat(maximumTokensRequested, "maximumTokensRequested").isPositive().
 			isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
 		assertThat(tokensConsumed, "tokensConsumed").isNotNegative();
 		if (tokensConsumed > 0)
@@ -50,17 +50,17 @@ public final class ConsumptionResult
 				isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
 		}
 		assertThat(requestedAt, "requestedAt").isNotNull();
-		assertThat(tokensAvailableAt, "tokensAvailableAt").isNotNull();
+		assertThat(availableAt, "AvailableAt").isNotNull();
 		this.container = container;
 		this.minimumTokensRequested = minimumTokensRequested;
 		this.maximumTokensRequested = maximumTokensRequested;
 		this.tokensConsumed = tokensConsumed;
 		this.requestedAt = requestedAt;
-		this.tokensAvailableAt = tokensAvailableAt;
+		this.availableAt = availableAt;
 	}
 
 	/**
-	 * Returns the container that gave up tokens. If tokens were consumed from a single bucket, it is
+	 * Returns the container that tokens were consumed from. If tokens were consumed from a single bucket, it is
 	 * returned. If tokens were consumed from multiple buckets, the highest common ancestor is returned.
 	 *
 	 * @return the container that gave up tokens
@@ -116,9 +116,9 @@ public final class ConsumptionResult
 	 *
 	 * @return the time when the requested number of tokens will become available
 	 */
-	public Instant getTokensAvailableAt()
+	public Instant getAvailableAt()
 	{
-		return tokensAvailableAt;
+		return availableAt;
 	}
 
 	/**
@@ -126,9 +126,9 @@ public final class ConsumptionResult
 	 *
 	 * @return the amount of time until the requested number of tokens will become available
 	 */
-	public Duration getTokensAvailableIn()
+	public Duration getAvailableIn()
 	{
-		return Duration.between(requestedAt, tokensAvailableAt);
+		return Duration.between(requestedAt, availableAt);
 	}
 
 	@Override
@@ -138,14 +138,14 @@ public final class ConsumptionResult
 			return false;
 		return other.container == container && other.minimumTokensRequested == minimumTokensRequested &&
 			other.maximumTokensRequested == maximumTokensRequested && other.tokensConsumed == tokensConsumed &&
-			other.requestedAt.equals(requestedAt) && other.tokensAvailableAt.equals(tokensAvailableAt);
+			other.requestedAt.equals(requestedAt) && other.availableAt.equals(availableAt);
 	}
 
 	@Override
 	public int hashCode()
 	{
 		return Objects.hash(container, minimumTokensRequested, maximumTokensRequested, tokensConsumed,
-			requestedAt, tokensAvailableAt);
+			requestedAt, availableAt);
 	}
 
 	@Override
@@ -153,7 +153,6 @@ public final class ConsumptionResult
 	{
 		return "successful: " + isSuccessful() + ", minimumTokensRequested: " + minimumTokensRequested +
 			", maximumTokensRequested: " + maximumTokensRequested + ", tokensConsumed: " + tokensConsumed +
-			", requestedAt: " + requestedAt + ", tokensAvailableAt: " + tokensAvailableAt + ", container: " +
-			container;
+			", requestedAt: " + requestedAt + ", availableAt: " + availableAt + ", container: " + container;
 	}
 }

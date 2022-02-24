@@ -26,19 +26,25 @@ public abstract class AbstractContainer implements Container
 		SharedSecrets.INSTANCE.containerSecrets = new ContainerSecrets()
 		{
 			@Override
-			public long getTokensAvailable(AbstractContainer container)
+			public long getAvailableTokens(AbstractContainer container)
 			{
-				return container.getTokensAvailable();
+				return container.getAvailableTokens();
 			}
 
 			@Override
-			public ConsumptionResult tryConsumeRange(AbstractContainer container, long minimumTokens,
-			                                         long maximumTokens, Instant requestedAt)
+			public long getMaximumTokens(AbstractContainer container)
+			{
+				return container.getMaximumTokens();
+			}
+
+			@Override
+			public ConsumptionResult tryConsume(AbstractContainer container, long minimumTokens, long maximumTokens,
+			                                    String nameOfMinimumTokens, Instant requestedAt)
 			{
 				try (CloseableLock ignored = container.lock.writeLock())
 				{
-					return container.consumptionPolicy.tryConsumeRange(minimumTokens, maximumTokens, requestedAt,
-						container);
+					return container.consumptionFunction.tryConsume(minimumTokens, maximumTokens, nameOfMinimumTokens,
+						requestedAt, container);
 				}
 			}
 		};
@@ -58,7 +64,14 @@ public abstract class AbstractContainer implements Container
 	 *
 	 * @return the number of tokens that are available
 	 */
-	protected abstract long getTokensAvailable();
+	protected abstract long getAvailableTokens();
+
+	/**
+	 * Returns the maximum number of tokens that this container can ever hold.
+	 *
+	 * @return the maximum number of tokens that this container can ever hold
+	 */
+	protected abstract long getMaximumTokens();
 
 	/**
 	 * @return the logger associated with this bucket
@@ -79,7 +92,7 @@ public abstract class AbstractContainer implements Container
 	 * </ul>
 	 */
 	protected final ReadWriteLockAsResource lock;
-	private final ConsumptionPolicy consumptionPolicy;
+	protected ConsumptionFunction consumptionFunction;
 	/**
 	 * A Condition that is signaled when the number of tokens has changed
 	 */
@@ -93,16 +106,16 @@ public abstract class AbstractContainer implements Container
 	/**
 	 * Creates a new AbstractBucket.
 	 *
-	 * @param lock              the lock over the bucket's state
-	 * @param consumptionPolicy indicates how tokens are consumed
+	 * @param lock                the lock over the bucket's state
+	 * @param consumptionFunction indicates how tokens are consumed
 	 * @throws NullPointerException if any of the arguments are null
 	 */
-	protected AbstractContainer(ReadWriteLockAsResource lock, ConsumptionPolicy consumptionPolicy)
+	protected AbstractContainer(ReadWriteLockAsResource lock, ConsumptionFunction consumptionFunction)
 	{
 		assertThat(lock, "lock").isNotNull();
-		requireThat(consumptionPolicy, "consumptionPolicy").isNotNull();
+		requireThat(consumptionFunction, "consumptionFunction").isNotNull();
 		this.lock = lock;
-		this.consumptionPolicy = consumptionPolicy;
+		this.consumptionFunction = consumptionFunction;
 		this.tokensUpdated = lock.newCondition();
 	}
 
@@ -120,7 +133,7 @@ public abstract class AbstractContainer implements Container
 		Instant requestedAt = Instant.now();
 		try (CloseableLock ignored = lock.writeLock())
 		{
-			return consumptionPolicy.tryConsumeRange(1, 1, requestedAt, this);
+			return consumptionFunction.tryConsume(1, 1, "tokensToConsume", requestedAt, this);
 		}
 	}
 
@@ -128,25 +141,26 @@ public abstract class AbstractContainer implements Container
 	@CheckReturnValue
 	public ConsumptionResult tryConsume(long tokens)
 	{
-		requireThat(tokens, "tokens").isNotNegative();
+		requireThat(tokens, "tokens").isPositive();
 		Instant requestedAt = Instant.now();
 		try (CloseableLock ignored = lock.writeLock())
 		{
-			return consumptionPolicy.tryConsumeRange(tokens, tokens, requestedAt, this);
+			return consumptionFunction.tryConsume(tokens, tokens, "tokens", requestedAt, this);
 		}
 	}
 
 	@Override
 	@CheckReturnValue
-	public ConsumptionResult tryConsumeRange(long minimumTokens, long maximumTokens)
+	public ConsumptionResult tryConsume(long minimumTokens, long maximumTokens)
 	{
-		requireThat(minimumTokens, "minimumTokens").isNotNegative();
-		requireThat(maximumTokens, "maximumTokens").isNotNegative().
+		requireThat(minimumTokens, "minimumTokens").isPositive();
+		requireThat(maximumTokens, "maximumTokens").isPositive().
 			isGreaterThanOrEqualTo(minimumTokens, "minimumTokens");
 		Instant requestedAt = Instant.now();
 		try (CloseableLock ignored = lock.writeLock())
 		{
-			return consumptionPolicy.tryConsumeRange(minimumTokens, maximumTokens, requestedAt, this);
+			return consumptionFunction.tryConsume(minimumTokens, maximumTokens, "minimumTokens", requestedAt,
+				this);
 		}
 	}
 
@@ -161,51 +175,49 @@ public abstract class AbstractContainer implements Container
 	@CheckReturnValue
 	public ConsumptionResult consume(long tokens) throws InterruptedException
 	{
-		requireThat(tokens, "tokens").isNotNegative();
+		requireThat(tokens, "tokens").isPositive();
 		Instant requestedAt = Instant.now();
-		return consume(tokens, tokens, requestedAt, consumptionResult -> false);
+		return consume(tokens, tokens, "tokens", requestedAt, consumptionResult -> false);
 	}
 
 	@Override
 	@CheckReturnValue
 	public ConsumptionResult consume(long tokens, long timeout, TimeUnit unit) throws InterruptedException
 	{
-		requireThat(tokens, "tokens").isNotNegative();
-		requireThat(timeout, "timeout").isNotNegative();
+		requireThat(tokens, "tokens").isPositive();
+		requireThat(timeout, "timeout").isPositive();
 		requireThat(unit, "unit").isNotNull();
 		Instant requestedAt = Instant.now();
 		Instant timeLimit = requestedAt.plus(timeout, unit.toChronoUnit());
-		return consume(tokens, tokens, requestedAt,
-			consumptionResult -> !consumptionResult.getTokensAvailableAt().isBefore(timeLimit));
+		return consume(tokens, tokens, "tokens", requestedAt,
+			consumptionResult -> !consumptionResult.getAvailableAt().isBefore(timeLimit));
 	}
 
 	@Override
 	@CheckReturnValue
-	public ConsumptionResult consumeRange(long minimumTokens,
-	                                      long maximumTokens) throws InterruptedException
+	public ConsumptionResult consume(long minimumTokens, long maximumTokens) throws InterruptedException
 	{
-		requireThat(minimumTokens, "minimumTokens").isNotNegative();
-		requireThat(maximumTokens, "maximumTokens").isNotNegative().
+		requireThat(minimumTokens, "minimumTokens").isPositive();
+		requireThat(maximumTokens, "maximumTokens").isPositive().
 			isGreaterThanOrEqualTo(minimumTokens, "minimumTokens");
 		Instant requestedAt = Instant.now();
-		return consume(minimumTokens, maximumTokens, requestedAt, consumptionResult -> false);
+		return consume(minimumTokens, maximumTokens, "minimumTokens", requestedAt, consumptionResult -> false);
 	}
 
 	@Override
 	@CheckReturnValue
-	public ConsumptionResult consumeRange(long minimumTokens, long maximumTokens, long timeout,
-	                                      TimeUnit unit)
+	public ConsumptionResult consume(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
 		throws InterruptedException
 	{
-		requireThat(minimumTokens, "minimumTokens").isNotNegative();
-		requireThat(maximumTokens, "maximumTokens").isNotNegative().
+		requireThat(minimumTokens, "minimumTokens").isPositive();
+		requireThat(maximumTokens, "maximumTokens").isPositive().
 			isGreaterThanOrEqualTo(minimumTokens, "minimumTokens");
-		requireThat(timeout, "timeout").isNotNegative();
+		requireThat(timeout, "timeout").isPositive();
 		requireThat(unit, "unit").isNotNull();
 		Instant requestedAt = Instant.now();
 		Instant timeLimit = requestedAt.plus(timeout, unit.toChronoUnit());
-		return consume(minimumTokens, maximumTokens, requestedAt,
-			consumptionResult -> !consumptionResult.getTokensAvailableAt().isBefore(timeLimit));
+		return consume(minimumTokens, maximumTokens, "minimumTokens", requestedAt,
+			consumptionResult -> !consumptionResult.getAvailableAt().isBefore(timeLimit));
 	}
 
 	/**
@@ -217,29 +229,30 @@ public abstract class AbstractContainer implements Container
 	 * @param timeout       returns true if a timeout occurs
 	 * @return the result of the operation
 	 * @throws NullPointerException     if any of the arguments are null
-	 * @throws IllegalArgumentException if {@code tokens} or {@code timeout} are negative or zero. If one of
-	 *                                  the bucket limits has a {@code maxTokens} that is less than
-	 *                                  {@code tokens}.
+	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If {@code tokens} or
+	 *                                  {@code timeout} are negative or zero. If one of the bucket limits has
+	 *                                  a {@code maximumTokens} that is less than {@code tokens}.
 	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
 	 *                                  available
 	 */
 	@CheckReturnValue
-	private ConsumptionResult consume(long minimumTokens, long maximumTokens, Instant requestedAt,
-	                                  Function<ConsumptionResult, Boolean> timeout)
+	private ConsumptionResult consume(long minimumTokens, long maximumTokens, String nameOfMinimumTokens,
+	                                  Instant requestedAt, Function<ConsumptionResult, Boolean> timeout)
 		throws InterruptedException
 	{
+		assertThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
 		assertThat(requestedAt, "requestedAt").isNotNull();
 		Logger log = getLogger();
 		while (true)
 		{
 			try (CloseableLock ignored = lock.writeLock())
 			{
-				ConsumptionResult consumptionResult = consumptionPolicy.tryConsumeRange(minimumTokens,
-					maximumTokens, requestedAt, this);
+				ConsumptionResult consumptionResult = consumptionFunction.tryConsume(minimumTokens, maximumTokens,
+					nameOfMinimumTokens, requestedAt, this);
 				if (consumptionResult.isSuccessful() || timeout.apply(consumptionResult))
 					return consumptionResult;
 				requestedAt = Instant.now();
-				Duration timeLeft = consumptionResult.getTokensAvailableIn();
+				Duration timeLeft = consumptionResult.getAvailableIn();
 				log.debug("Sleeping {}", timeLeft);
 				Conditions.await(tokensUpdated, timeLeft);
 			}

@@ -55,6 +55,74 @@ public final class ContainerListTest
 	}
 
 	@Test
+	public void consumeFromOneWhenSomeBucketsWillNeverHaveEnoughTokens()
+	{
+		ContainerList containerList = ContainerList.builder().
+			consumeFromOne(SelectionPolicy.roundRobin()).
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.maximumTokens(5).
+							userData("firstLimit").
+							build()).
+					userData("firstBucket").
+					build()).
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.initialTokens(10).
+							userData("secondLimit").
+							build()).
+					userData("secondBucket").
+					build()).
+			build();
+
+		Requirements requirements = new Requirements();
+		Bucket first = (Bucket) containerList.getChildren().stream().
+			filter(bucket -> bucket.getUserData().equals("firstBucket")).
+			findFirst().orElse(null);
+		requirements.requireThat(first, "first").isNotNull();
+		Bucket second = (Bucket) containerList.getChildren().stream().
+			filter(bucket -> bucket.getUserData().equals("secondBucket")).
+			findFirst().orElse(null);
+		requirements.requireThat(second, "second").isNotNull();
+
+		ConsumptionResult consumptionResult = containerList.tryConsume(10);
+		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").
+			isTrue();
+		requirements.requireThat(consumptionResult.getContainer(), "consumptionResult.getContainer()").
+			isEqualTo(second);
+		consumptionResult = containerList.tryConsume(10);
+		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").
+			isFalse();
+	}
+
+	@Test(expectedExceptions = IllegalArgumentException.class)
+	public void consumeFromOneWhenAllBucketsWillNeverHaveEnoughTokens()
+	{
+		ContainerList containerList = ContainerList.builder().
+			consumeFromOne(SelectionPolicy.roundRobin()).
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.maximumTokens(5).
+							userData("firstLimit").
+							build()).
+					userData("firstBucket").
+					build()).
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.maximumTokens(5).
+							userData("secondLimit").
+							build()).
+					userData("secondBucket").
+					build()).
+			build();
+
+		//noinspection ResultOfMethodCallIgnored
+		containerList.tryConsume(10);
+	}
+
+	@Test
 	public void consumeFromAll()
 	{
 		ContainerList containerList = ContainerList.builder().
@@ -83,9 +151,146 @@ public final class ContainerListTest
 		for (Container child : containerList.getChildren())
 		{
 			Bucket bucket = (Bucket) child;
-			requirements.requireThat(bucket.getTokensAvailable(), "bucket.getTokensAvailable()").isEqualTo(0L);
+			requirements.requireThat(bucket.getAvailableTokens(), "bucket.getAvailableTokens()").isEqualTo(0L);
 		}
 		consumptionResult = containerList.tryConsume(5);
+		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isFalse();
+	}
+
+	@Test
+	public void containerOfContainersConsumeFromOne()
+	{
+		ContainerList parent = ContainerList.builder().
+			consumeFromOne(SelectionPolicy.roundRobin()).
+			addContainerList(child -> child.
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(10).
+								userData("limit1").
+								build()).
+						userData("bucket1").
+						build()).
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(10).
+								userData("limit1").
+								build()).
+						userData("bucket2").
+						build()).
+				consumeFromAll().
+				userData("list1").
+				build()).
+			addContainerList(child -> child.
+				addBucket(bucket -> bucket.addLimit(limit ->
+						limit.initialTokens(5).
+							userData("limit3").
+							build()).
+					userData("bucket3").
+					build()).
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(5).
+								userData("limit4").
+								build()).
+						userData("bucket4").
+						build()).
+				consumeFromAll().
+				userData("list2").
+				build()).build();
+
+		ConsumptionResult consumptionResult = parent.tryConsume(10);
+		Requirements requirements = new Requirements();
+		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
+
+		ContainerList list1 = parent.getChildren().stream().filter(child -> child.getUserData().equals("list1")).
+			map(container -> (ContainerList) container).
+			findFirst().orElse(null);
+
+		assert (list1 != null);
+		requirements.requireThat(consumptionResult.getContainer(), "consumptionResult.getContainer()").
+			isEqualTo(list1);
+		for (Container child : list1.getChildren())
+		{
+			Bucket bucket = (Bucket) child;
+			requirements.requireThat(bucket.getAvailableTokens(), "bucket.getAvailableTokens()").isEqualTo(0L);
+		}
+
+		ContainerList list2 = parent.getChildren().stream().filter(child -> child.getUserData().equals("list2")).
+			map(container -> (ContainerList) container).
+			findFirst().orElse(null);
+		assert (list2 != null);
+		for (Container child : list2.getChildren())
+		{
+			Bucket bucket = (Bucket) child;
+			requirements.requireThat(bucket.getAvailableTokens(), "bucket.getAvailableTokens()").isEqualTo(5L);
+		}
+
+		consumptionResult = parent.tryConsume(10);
+		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isFalse();
+
+		consumptionResult = parent.tryConsume(5);
+		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
+	}
+
+	@Test
+	public void containerOfContainersConsumeFromAll()
+	{
+		ContainerList parent = ContainerList.builder().
+			addContainerList(child -> child.
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(5).
+								userData("limit1").
+								build()).
+						userData("bucket1").
+						build()).
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(5).
+								userData("limit1").
+								build()).
+						userData("bucket2").
+						build()).
+				consumeFromAll().
+				userData("list1").
+				build()).
+			addContainerList(child -> child.
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(5).
+								userData("limit3").
+								build()).
+						userData("bucket3").
+						build()).
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(5).
+								userData("limit4").
+								build()).
+						userData("bucket4").
+						build()).
+				consumeFromAll().
+				userData("list2").
+				build()).
+			consumeFromAll().
+			build();
+
+		ConsumptionResult consumptionResult = parent.tryConsume(5);
+		Requirements requirements = new Requirements();
+		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
+		requirements.requireThat(consumptionResult.getContainer(), "consumptionResult.getContainer()").
+			isEqualTo(parent);
+		for (Container child : parent.getChildren())
+		{
+			ContainerList childList = (ContainerList) child;
+			requirements.requireThat(childList.getAvailableTokens(), "childList.getAvailableTokens()").isEqualTo(0L);
+		}
+		consumptionResult = parent.tryConsume(5);
 		requirements = requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isFalse();
 	}
