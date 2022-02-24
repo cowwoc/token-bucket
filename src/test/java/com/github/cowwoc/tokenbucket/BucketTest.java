@@ -53,7 +53,7 @@ public final class BucketTest
 			addLimit(limit ->
 				limit.tokensPerPeriod(tokens).
 					period(Duration.ofSeconds(seconds)).
-					minimumRefill(1).
+					refillSize(1).
 					build()).
 			build();
 
@@ -78,7 +78,7 @@ public final class BucketTest
 				limit.initialTokens(-100).
 					tokensPerPeriod(1).
 					period(Duration.ofSeconds(1)).
-					minimumRefill(1).
+					refillSize(1).
 					build()).
 			build();
 
@@ -98,7 +98,7 @@ public final class BucketTest
 				limit.initialTokens(1).
 					tokensPerPeriod(1).
 					period(Duration.ofSeconds(1)).
-					minimumRefill(1).
+					refillSize(1).
 					build()).
 			build();
 
@@ -123,13 +123,13 @@ public final class BucketTest
 				limit.initialTokens(10).
 					tokensPerPeriod(1).
 					period(Duration.ofSeconds(1)).
-					minimumRefill(1).
+					refillSize(1).
 					build()).
 			addLimit(limit ->
 				limit.initialTokens(100).
 					tokensPerPeriod(1).
 					period(Duration.ofSeconds(1)).
-					minimumRefill(1).
+					refillSize(1).
 					build()).
 			build();
 
@@ -162,19 +162,37 @@ public final class BucketTest
 	}
 
 	@Test
+	public void refillPartialPeriod()
+	{
+		// Make sure that we refill tokens correctly mid-period
+		Bucket bucket = Bucket.builder().
+			addLimit(limit ->
+				limit.initialTokens(0).
+					period(Duration.ofSeconds(10)).
+					tokensPerPeriod(10).
+					refillSize(2).
+					build()).
+			build();
+
+		Limit limit = bucket.getLimits().iterator().next();
+		long tokensAdded = limit.refill(limit.lastRefilledAt.plusSeconds(5));
+		requireThat(tokensAdded, "tokensAdded").isEqualTo(4L);
+	}
+
+	@Test
 	public void bottleneckListIsMinimal()
 	{
 		Bucket bucket = Bucket.builder().
 			addLimit(limit ->
 				limit.tokensPerPeriod(1).
 					period(Duration.ofMinutes(1)).
-					minimumRefill(1).
+					refillSize(1).
 					userData("first").
 					build()).
 			addLimit(limit ->
 				limit.tokensPerPeriod(1).
 					period(Duration.ofMinutes(10)).
-					minimumRefill(1).
+					refillSize(1).
 					userData("second").
 					build()).
 			build();

@@ -216,7 +216,11 @@ public final class ContainerList extends AbstractContainer
 	@Override
 	public String toString()
 	{
-		return "consumptionPolicy: " + consumptionPolicy + ", children: " + children + ", userData: " + userData;
+		try (CloseableLock ignored = lock.readLock())
+		{
+			return "consumptionPolicy: " + consumptionPolicy + ", children: " + children + ", userData: " +
+				userData;
+		}
 	}
 
 	/**

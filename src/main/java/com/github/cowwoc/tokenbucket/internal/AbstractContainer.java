@@ -278,9 +278,9 @@ public abstract class AbstractContainer implements Container
 		assertThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
 		assertThat(requestedAt, "requestedAt").isNotNull();
 		Logger log = getLogger();
-		while (true)
+		try (CloseableLock ignored = lock.writeLock())
 		{
-			try (CloseableLock ignored = lock.writeLock())
+			while (true)
 			{
 				ConsumptionResult consumptionResult = consumptionFunction.tryConsume(minimumTokens, maximumTokens,
 					nameOfMinimumTokens, requestedAt, this);
@@ -289,7 +289,9 @@ public abstract class AbstractContainer implements Container
 				requestedAt = Instant.now();
 				Duration timeLeft = consumptionResult.getAvailableIn();
 				log.debug("Sleeping {}", timeLeft);
+				log.debug("State before sleep: {}", this);
 				Conditions.await(tokensUpdated, timeLeft);
+				log.debug("State after sleep: {}", this);
 			}
 		}
 	}

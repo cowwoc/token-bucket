@@ -3,6 +3,8 @@ package com.github.cowwoc.tokenbucket;
 import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -25,12 +27,13 @@ public final class Limit
 	Duration period;
 	long initialTokens;
 	long maximumTokens;
-	long minimumRefill;
+	long refillSize;
 	private Object userData;
 	Instant startOfCurrentPeriod;
 	long tokensAddedInCurrentPeriod;
 	Instant lastRefilledAt;
 	long availableTokens;
+	private final Logger log = LoggerFactory.getLogger(Limit.class);
 
 	/**
 	 * Adds a limit that the bucket must respect.
@@ -41,7 +44,7 @@ public final class Limit
 	 * <li>{@code period} is 1 second.</li>
 	 * <li>{@code initialTokens} is 0.</li>
 	 * <li>{@code maximumTokens} is {@code Long.MAX_VALUE}.</li>
-	 * <li>{@code minimumRefill} is 1.</li>
+	 * <li>{@code refillSize} is 1.</li>
 	 * <li>{@code userData} is {@code null}.</li>
 	 * </ul>
 	 *
@@ -62,14 +65,14 @@ public final class Limit
 	 * @param initialTokens   the initial amount of tokens in the bucket
 	 * @param maximumTokens   the maximum amount of tokens that the bucket may hold before overflowing
 	 *                        (subsequent tokens are discarded)
-	 * @param minimumRefill   the minimum number of tokens by which the limit may be refilled
+	 * @param refillSize      the number of tokens that are refilled at a time
 	 * @param userData        the data associated with this limit
 	 * @throws NullPointerException     if {@code period} is null
 	 * @throws IllegalArgumentException if {@code initialTokens > maximumTokens} or
 	 *                                  {@code tokensPerPeriod > maximumTokens}
 	 */
 	private Limit(long tokensPerPeriod, Duration period, long initialTokens, long maximumTokens,
-	              long minimumRefill, Object userData)
+	              long refillSize, Object userData)
 	{
 		// Assume that all other preconditions are enforced by Builder
 		requireThat(maximumTokens, "maximumTokens").
@@ -79,7 +82,7 @@ public final class Limit
 		this.period = period;
 		this.initialTokens = initialTokens;
 		this.maximumTokens = maximumTokens;
-		this.minimumRefill = minimumRefill;
+		this.refillSize = refillSize;
 		this.userData = userData;
 
 		this.availableTokens = initialTokens;
@@ -156,17 +159,21 @@ public final class Limit
 	}
 
 	/**
-	 * Returns the minimum number of tokens that may be refilled at a time. When completing a
-	 * {@link #getPeriod() period} a smaller number of tokens may be refilled in order to avoid surpassing
-	 * {@link #getTokensPerPeriod() tokensPerPeriod}.
+	 * Returns the number of tokens that are refilled at a time.
+	 * <p>
+	 * At one end of the spectrum, one may refill tokens one at a time during the {@link #getPeriod() period}.
+	 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
+	 * <p>
+	 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
+	 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
 	 *
 	 * @return the minimum number of tokens by which the limit may be refilled
 	 */
-	public long getMinimumRefill()
+	public long getRefillSize()
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			return minimumRefill;
+			return refillSize;
 		}
 	}
 
@@ -227,19 +234,12 @@ public final class Limit
 		Duration timeElapsedInPeriod = timeElapsed.minus(period.multipliedBy(numberOfPeriodsElapsed));
 		if (!timeElapsedInPeriod.isZero())
 		{
-			// The amount of time that must elapse for a single token to get added
-			Duration durationPerToken = period.dividedBy(tokensPerPeriod);
-			// Fill tokens smoothly. For example, a refill rate of 60 tokens a minute will add 1 token per second
-			// as opposed to 60 tokens all at once at the end of the minute.
-			long tokensToAddInPeriod = timeElapsedInPeriod.dividedBy(durationPerToken) -
-				tokensAddedInCurrentPeriod;
-			// In line with the illusion that we are filling the bucket in real-time, "minimumRefill" only
-			// applies to the latest period.
-			if (tokensToAddInPeriod >= minimumRefill)
-			{
-				tokensToAdd += tokensToAddInPeriod;
-				tokensAddedInCurrentPeriod += tokensToAddInPeriod;
-			}
+			double secondsPerToken = (double) period.toSeconds() / tokensPerPeriod;
+			double secondsPerRefill = (double) refillSize * secondsPerToken;
+			long refillsElapsed = (long) Math.floor((double) timeElapsedInPeriod.toSeconds() / secondsPerRefill);
+			long tokensToAddInPeriod = refillSize * refillsElapsed;
+			tokensToAdd += tokensToAddInPeriod;
+			tokensAddedInCurrentPeriod += tokensToAddInPeriod;
 		}
 		if (tokensToAdd == 0)
 			return 0;
@@ -323,16 +323,23 @@ public final class Limit
 		if (availableTokens < minimumTokens)
 		{
 			long tokensNeeded = minimumTokens - availableTokens;
-			double minimumRefillsNeeded = (double) tokensNeeded / minimumTokens;
-			double periodPerRefill = (double) minimumRefill / tokensPerPeriod;
-			long secondsToAdd = (long) Math.ceil(period.toSeconds() * minimumRefillsNeeded * periodPerRefill);
+			long refillsNeeded = (long) Math.ceil((double) tokensNeeded / refillSize);
+			double secondsPerToken = (double) period.toSeconds() / tokensPerPeriod;
+			double secondsPerRefill = (double) refillSize * secondsPerToken;
+			long secondsToAdd = (long) Math.ceil(refillsNeeded * secondsPerRefill);
+			assertThat(secondsToAdd, "secondsToAdd").isPositive();
 			availableAt = lastRefilledAt.plusSeconds(secondsToAdd);
+			assertThat(availableAt, "availableAt").isGreaterThan(requestedAt, "requestAt");
+//			log.debug("availableTokens: {}, tokensNeeded: {}, refillsNeeded: {}, periodPerRefill: {}, " +
+//					"secondsToAdd: {}, availableIn: {}", availableTokens, tokensNeeded, refillsNeeded,
+//				secondsPerRefill, secondsToAdd, Duration.between(requestedAt, availableAt));
 			tokensConsumed = 0;
 		}
 		else
 		{
 			availableAt = requestedAt;
 			tokensConsumed = Math.min(maximumTokens, availableTokens);
+			assertThat(tokensConsumed, "tokensConsumed()").isPositive();
 		}
 		return new ConsumptionSimulation(tokensConsumed, requestedAt, availableAt);
 	}
@@ -354,7 +361,7 @@ public final class Limit
 	@Override
 	public int hashCode()
 	{
-		return Objects.hash(tokensPerPeriod, period, initialTokens, maximumTokens, minimumRefill);
+		return Objects.hash(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize);
 	}
 
 	@Override
@@ -363,16 +370,19 @@ public final class Limit
 		if (!(o instanceof Limit other)) return false;
 		return tokensPerPeriod == other.tokensPerPeriod && initialTokens == other.initialTokens &&
 			maximumTokens == other.maximumTokens && period.equals(other.period) &&
-			minimumRefill == other.minimumRefill;
+			refillSize == other.refillSize;
 	}
 
 	@Override
 	public String toString()
 	{
-		return "availableTokens: " + availableTokens + ", lastRefilledAt: " + lastRefilledAt +
-			", tokensPerPeriod: " + tokensPerPeriod + ", period: " + period + ", initialTokens: " +
-			initialTokens + ", maximumTokens: " + maximumTokens + ", minimumRefill: " + minimumRefill +
-			", userData: " + userData;
+		try (CloseableLock ignored = lock.readLock())
+		{
+			return "availableTokens: " + availableTokens + ", lastRefilledAt: " + lastRefilledAt +
+				", tokensPerPeriod: " + tokensPerPeriod + ", period: " + period + ", initialTokens: " +
+				initialTokens + ", maximumTokens: " + maximumTokens + ", refillSize: " + refillSize +
+				", userData: " + userData;
+		}
 	}
 
 	/**
@@ -385,7 +395,7 @@ public final class Limit
 		private Duration period = Duration.ofSeconds(1);
 		private long initialTokens;
 		private long maximumTokens = Long.MAX_VALUE;
-		private long minimumRefill = 1;
+		private long refillSize = 1;
 		private Object userData;
 
 		/**
@@ -397,7 +407,7 @@ public final class Limit
 		 * <li>{@code period} is 1 second.</li>
 		 * <li>{@code initialTokens} is 0.</li>
 		 * <li>{@code maximumTokens} is {@code Long.MAX_VALUE}.</li>
-		 * <li>{@code minimumRefill} is 1.</li>
+		 * <li>{@code refillSize} is 1.</li>
 		 * <li>{@code userData} is {@code null}.</li>
 		 * </ul>
 		 *
@@ -518,28 +528,40 @@ public final class Limit
 		}
 
 		/**
-		 * Returns the minimum number of tokens by which the limit may be refilled.
+		 * Returns the number of tokens that are refilled at a time.
+		 * <p>
+		 * At one end of the spectrum, one may refill tokens one at a time during the {@link #getPeriod() period}.
+		 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
+		 * <p>
+		 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
+		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
 		 *
 		 * @return the minimum number of tokens by which the limit may be refilled
 		 */
 		@CheckReturnValue
-		public long minimumRefill()
+		public long refillSize()
 		{
-			return minimumRefill;
+			return refillSize;
 		}
 
 		/**
-		 * Sets the minimum number of tokens by which the limit may be refilled.
+		 * Sets the number of tokens that are refilled at a time.
+		 * <p>
+		 * At one end of the spectrum, one may refill tokens one at a time during the {@link #getPeriod() period}.
+		 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
+		 * <p>
+		 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
+		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
 		 *
-		 * @param minimumRefill the minimum number of tokens by which the limit may be refilled
+		 * @param refillSize the minimum number of tokens by which the limit may be refilled
 		 * @return this
-		 * @throws IllegalArgumentException if {@code minimumRefill} is negative
+		 * @throws IllegalArgumentException if {@code refillSize} is negative or zero
 		 */
 		@CheckReturnValue
-		public Builder minimumRefill(long minimumRefill)
+		public Builder refillSize(long refillSize)
 		{
-			requireThat(minimumRefill, "minimumRefill").isPositive();
-			this.minimumRefill = minimumRefill;
+			requireThat(refillSize, "refillSize").isPositive();
+			this.refillSize = refillSize;
 			return this;
 		}
 
@@ -574,7 +596,7 @@ public final class Limit
 		 */
 		public Limit build()
 		{
-			Limit limit = new Limit(tokensPerPeriod, period, initialTokens, maximumTokens, minimumRefill, userData);
+			Limit limit = new Limit(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize, userData);
 			consumer.accept(limit);
 			return limit;
 		}
@@ -590,7 +612,7 @@ public final class Limit
 		private long tokensPerPeriod;
 		private Duration period;
 		private long maximumTokens;
-		private long minimumRefill;
+		private long refillSize;
 		private Object userData;
 		private Instant lastRefilledAt;
 		private long availableTokens;
@@ -609,7 +631,7 @@ public final class Limit
 				this.tokensPerPeriod = Limit.this.tokensPerPeriod;
 				this.period = Limit.this.period;
 				this.maximumTokens = Limit.this.maximumTokens;
-				this.minimumRefill = Limit.this.minimumRefill;
+				this.refillSize = Limit.this.refillSize;
 				this.lastRefilledAt = Limit.this.lastRefilledAt;
 				this.availableTokens = Limit.this.availableTokens;
 				this.startOfCurrentPeriod = Limit.this.startOfCurrentPeriod;
@@ -706,31 +728,43 @@ public final class Limit
 		}
 
 		/**
-		 * Returns the minimum number of tokens by which the limit may be refilled.
+		 * Returns the number of tokens that are refilled at a time.
+		 * <p>
+		 * At one end of the spectrum, one may refill tokens one at a time during the {@link #getPeriod() period}.
+		 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
+		 * <p>
+		 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
+		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
 		 *
 		 * @return the minimum number of tokens by which the limit may be refilled
 		 */
 		@CheckReturnValue
-		public long minimumRefill()
+		public long refillSize()
 		{
-			return minimumRefill;
+			return refillSize;
 		}
 
 		/**
-		 * Sets the minimum number of tokens by which the limit may be refilled.
+		 * Sets the number of tokens that are refilled at a time.
+		 * <p>
+		 * At one end of the spectrum, one may refill tokens one at a time during the {@link #getPeriod() period}.
+		 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
+		 * <p>
+		 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
+		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
 		 *
-		 * @param minimumRefill the minimum number of tokens by which the limit may be refilled
+		 * @param refillSize the minimum number of tokens by which the limit may be refilled
 		 * @return this
-		 * @throws IllegalArgumentException if {@code minimumRefill} is negative
+		 * @throws IllegalArgumentException if {@code refillSize} is negative or zero
 		 */
 		@CheckReturnValue
-		public ConfigurationUpdater minimumRefill(long minimumRefill)
+		public ConfigurationUpdater refillSize(long refillSize)
 		{
-			requireThat(minimumRefill, "minimumRefill").isPositive();
-			if (minimumRefill == this.minimumRefill)
+			requireThat(refillSize, "refillSize").isPositive();
+			if (refillSize == this.refillSize)
 				return this;
 			changed = true;
-			this.minimumRefill = minimumRefill;
+			this.refillSize = refillSize;
 			return this;
 		}
 
@@ -915,10 +949,11 @@ public final class Limit
 			{
 				bucket.updateChild(Limit.this, () ->
 				{
+					log.debug("Before updating limit: {}", Limit.this);
 					Limit.this.tokensPerPeriod = tokensPerPeriod;
 					Limit.this.period = period;
 					Limit.this.maximumTokens = maximumTokens;
-					Limit.this.minimumRefill = minimumRefill;
+					Limit.this.refillSize = refillSize;
 					Limit.this.lastRefilledAt = lastRefilledAt;
 					Limit.this.userData = userData;
 
@@ -927,6 +962,7 @@ public final class Limit
 
 					Limit.this.startOfCurrentPeriod = startOfCurrentPeriod;
 					Limit.this.tokensAddedInCurrentPeriod = tokensAddedInCurrentPeriod;
+					log.debug("After updating limit: {}", Limit.this);
 				});
 			}
 		}

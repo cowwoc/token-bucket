@@ -8,6 +8,7 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
         * Renamed tokensAvailable to availableTokens.
         * Renamed maxTokens to maximumTokens.
         * Renamed minimumToRefill to minimumRefill.
+        * Renamed minimumRefill to refillSize.
     * Container
         * Renamed consumeRange() to consume().
         * Disallow consumption of zero tokens.
