@@ -3,7 +3,7 @@
 
 # <img src="wiki/bucket.svg" width=64 height=64 alt="checklist"> Token-Bucket
 
-[![API](https://img.shields.io/badge/api_docs-5B45D5.svg)](https://cowwoc.github.io/token-bucket/2.0/docs/api/)
+[![API](https://img.shields.io/badge/api_docs-5B45D5.svg)](https://cowwoc.github.io/token-bucket/3.0/docs/api/)
 [![Changelog](https://img.shields.io/badge/changelog-A345D5.svg)](wiki/Changelog.md)
 
 A Java implementation of the [Token Bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket).
@@ -17,7 +17,7 @@ the following Maven dependency:
 <dependency>
   <groupId>com.github.cowwoc.token-bucket</groupId>
   <artifactId>token-bucket</artifactId>
-  <version>2.0</version>
+  <version>3.0</version>
 </dependency>
 ```
 
