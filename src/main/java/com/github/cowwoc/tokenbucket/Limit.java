@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.StringJoiner;
 import java.util.function.Consumer;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
@@ -187,19 +188,6 @@ public final class Limit
 	}
 
 	/**
-	 * Returns the number of tokens that are available, without triggering a refill.
-	 *
-	 * @return the number of tokens that are available
-	 */
-	long getAvailableTokens()
-	{
-		try (CloseableLock ignored = lock.readLock())
-		{
-			return availableTokens;
-		}
-	}
-
-	/**
 	 * Returns the maximum number of tokens that can be added before surpassing this Limit's capacity.
 	 *
 	 * @return the maximum number of tokens that can be added before surpassing this Limit's capacity
@@ -213,15 +201,16 @@ public final class Limit
 	 * Refills the limit.
 	 *
 	 * @param requestedAt the time that the tokens were requested at
-	 * @return the number of tokens added
 	 * @throws NullPointerException if {@code requestedAt} is null
 	 */
-	long refill(Instant requestedAt)
+	void refill(Instant requestedAt)
 	{
 		lastRefilledAt = requestedAt;
 		Duration timeElapsed = Duration.between(startOfCurrentPeriod, requestedAt);
 		if (timeElapsed.isNegative())
-			return 0;
+			return;
+		assertThat(tokensAddedInCurrentPeriod, "tokensAddedInCurrentPeriod").
+			isLessThanOrEqualTo(tokensPerPeriod, "tokensPerPeriod");
 		long tokensToAdd = 0;
 		long numberOfPeriodsElapsed = timeElapsed.dividedBy(period);
 		if (numberOfPeriodsElapsed > 0)
@@ -236,17 +225,16 @@ public final class Limit
 			double secondsPerToken = (double) period.toSeconds() / tokensPerPeriod;
 			double secondsPerRefill = (double) refillSize * secondsPerToken;
 			long refillsElapsed = (long) Math.floor((double) timeElapsedInPeriod.toSeconds() / secondsPerRefill);
-			long tokensToAddInPeriod = refillSize * refillsElapsed;
+			long tokensToAddInPeriod = refillSize * refillsElapsed - tokensAddedInCurrentPeriod;
 			tokensToAdd += tokensToAddInPeriod;
 			tokensAddedInCurrentPeriod += tokensToAddInPeriod;
 		}
+		assertThat(tokensToAdd, "tokensToAdd").isNotNegative();
 		if (tokensToAdd == 0)
-			return 0;
+			return;
 
 		// Overflow the bucket if necessary
-		long tokensBefore = availableTokens;
 		availableTokens = Math.min(maximumTokens, saturatedAdd(availableTokens, tokensToAdd));
-		return availableTokens - tokensBefore;
 	}
 
 	/**
@@ -374,10 +362,19 @@ public final class Limit
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			return "availableTokens: " + availableTokens + ", lastRefilledAt: " + lastRefilledAt +
-				", tokensPerPeriod: " + tokensPerPeriod + ", period: " + period + ", initialTokens: " +
-				initialTokens + ", maximumTokens: " + maximumTokens + ", refillSize: " + refillSize + ", userData: " +
-				userData;
+			StringJoiner properties = new StringJoiner(",\n");
+			properties.add("availableTokens: " + availableTokens);
+			properties.add("tokensPerPeriod: " + tokensPerPeriod);
+			properties.add("period: " + period);
+			properties.add("maximumTokens: " + maximumTokens);
+			properties.add("refillSize: " + refillSize);
+			properties.add("lastRefilledAt: " + lastRefilledAt);
+			properties.add("initialTokens: " + initialTokens);
+			properties.add("userData: " + userData);
+			return "\n" +
+				"[\n" +
+				"\t" + properties.toString().replaceAll("\n", "\n\t") + "\n" +
+				"]";
 		}
 	}
 

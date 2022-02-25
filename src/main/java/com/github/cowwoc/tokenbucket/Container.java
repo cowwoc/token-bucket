@@ -2,6 +2,7 @@ package com.github.cowwoc.tokenbucket;
 
 import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -9,6 +10,13 @@ import java.util.concurrent.TimeUnit;
  */
 public interface Container
 {
+	/**
+	 * Returns the listeners associated with this container.
+	 *
+	 * @return an unmodifiable list
+	 */
+	List<ContainerListener> getListeners();
+
 	/**
 	 * Returns the data associated with this container.
 	 *

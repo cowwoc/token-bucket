@@ -50,10 +50,11 @@ public interface ContainerSecrets
 	/**
 	 * Attempts to consume {@code [minimumTokens, maximumTokens]}. Consumption is not guaranteed to be fair.
 	 *
-	 * @param container     the container
-	 * @param minimumTokens the minimum number of tokens to consume (inclusive)
-	 * @param maximumTokens the maximum  number of tokens to consume (inclusive)
-	 * @param requestedAt   the time at which the tokens were requested
+	 * @param container           the container
+	 * @param minimumTokens       the minimum number of tokens to consume (inclusive)
+	 * @param maximumTokens       the maximum  number of tokens to consume (inclusive)
+	 * @param nameOfMinimumTokens the name of the {@code minimumTokens} parameter
+	 * @param requestedAt         the time at which the tokens were requested
 	 * @return the minimum amount of time until the requested number of tokens will be available
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If

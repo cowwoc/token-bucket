@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.StringJoiner;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
@@ -30,8 +31,8 @@ public final class ConsumptionResult
 	 * @param maximumTokensRequested the maximum number of tokens that were requested (inclusive)
 	 * @param tokensConsumed         the number of tokens that were consumed
 	 * @param requestedAt            the time at which the tokens were requested
-	 * @param availableAt            the time at which the requested tokens will become available. If tokens
-	 *                               were consumed, this value is equal to {@code requestedAt}.
+	 * @param availableAt            the time at which the requested tokens are expected to become available.
+	 *                               If tokens were consumed, this value is equal to {@code requestedAt}.
 	 * @param bottleneck             the list of Limits that are preventing tokens from being consumed (empty if
 	 *                               none)
 	 * @throws NullPointerException     if any of the arguments are null
@@ -55,7 +56,7 @@ public final class ConsumptionResult
 				isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
 		}
 		assertThat(requestedAt, "requestedAt").isNotNull();
-		assertThat(availableAt, "AvailableAt").isNotNull();
+		assertThat(availableAt, "availableAt").isNotNull();
 		assertThat(bottleneck, "bottleneck").isNotNull();
 		this.container = container;
 		this.minimumTokensRequested = minimumTokensRequested;
@@ -118,10 +119,10 @@ public final class ConsumptionResult
 	}
 
 	/**
-	 * Indicates when the requested number of tokens will become available. If tokens were consumed, this
-	 * value is equal to {@code requestedAt}.
+	 * Returns the time at which the requested tokens are expected to become available. If tokens were consumed,
+	 * this value is equal to {@code requestedAt}.
 	 *
-	 * @return the time when the requested number of tokens will become available
+	 * @return the time at which the requested tokens are expected to become available
 	 */
 	public Instant getAvailableAt()
 	{
@@ -169,9 +170,18 @@ public final class ConsumptionResult
 	@Override
 	public String toString()
 	{
-		return "successful: " + isSuccessful() + ", minimumTokensRequested: " + minimumTokensRequested +
-			", maximumTokensRequested: " + maximumTokensRequested + ", tokensConsumed: " + tokensConsumed +
-			", requestedAt: " + requestedAt + ", availableAt: " + availableAt + ", bottleneck: " + bottleneck +
-			", container: " + container;
+		StringJoiner properties = new StringJoiner(",\n");
+		properties.add("successful: " + isSuccessful());
+		properties.add("tokensConsumed: " + tokensConsumed);
+		properties.add("minimumTokensRequested: " + minimumTokensRequested);
+		properties.add("maximumTokensRequested: " + maximumTokensRequested);
+		properties.add("requestedAt: " + requestedAt);
+		properties.add("availableAt: " + availableAt);
+		properties.add("bottleneck: " + bottleneck);
+		properties.add("container: " + container);
+		return "\n" +
+			"[\n" +
+			"\t" + properties.toString().replaceAll("\n", "\n\t") + "\n" +
+			"]";
 	}
 }

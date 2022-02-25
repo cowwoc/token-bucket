@@ -14,10 +14,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
+import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -50,17 +49,18 @@ public final class Bucket extends AbstractContainer
 	/**
 	 * Creates a child bucket.
 	 *
-	 * @param lock     the lock over the bucket's state
-	 * @param userData the data associated with this bucket
-	 * @throws NullPointerException     if {@code limits} or {@code lock} are null
+	 * @param lock      the lock over the bucket's state
+	 * @param listeners the event listeners associated with this bucket
+	 * @param userData  the data associated with this bucket
+	 * @throws NullPointerException     if {@code limits}, {@code listeners} or {@code lock} are null
 	 * @throws IllegalArgumentException if {@code limits} is empty
 	 */
-	private Bucket(Set<Limit> limits, Object userData, ReadWriteLockAsResource lock)
+	private Bucket(List<Limit> limits, List<ContainerListener> listeners, Object userData,
+	               ReadWriteLockAsResource lock)
 	{
-		super(lock, Bucket::tryConsume);
-		requireThat(limits, "limits").isNotEmpty();
+		super(listeners, userData, lock, Bucket::tryConsume);
+		assertThat(limits, "limits").isNotEmpty();
 		this.limits = List.copyOf(limits);
-		this.userData = userData;
 	}
 
 	@Override
@@ -68,7 +68,7 @@ public final class Bucket extends AbstractContainer
 	{
 		long availableTokens = Long.MAX_VALUE;
 		for (Limit limit : limits)
-			availableTokens = Math.min(availableTokens, limit.getAvailableTokens());
+			availableTokens = Math.min(availableTokens, limit.availableTokens);
 		return availableTokens;
 	}
 
@@ -77,7 +77,7 @@ public final class Bucket extends AbstractContainer
 	{
 		List<Limit> result = new ArrayList<>();
 		for (Limit limit : limits)
-			if (limit.getAvailableTokens() < tokens)
+			if (limit.availableTokens < tokens)
 				result.add(limit);
 		return result;
 	}
@@ -95,7 +95,7 @@ public final class Bucket extends AbstractContainer
 	protected void updateChild(Object child, Runnable update)
 	{
 		Limit limit = (Limit) child;
-		Set<Limit> newLimits = new HashSet<>(limits);
+		List<Limit> newLimits = new ArrayList<>(limits);
 		newLimits.remove(limit);
 
 		update.run();
@@ -234,7 +234,12 @@ public final class Bucket extends AbstractContainer
 
 	// Export Javadoc without exporting AbstractContainer
 	@Override
-	@CheckReturnValue
+	public List<ContainerListener> getListeners()
+	{
+		return super.getListeners();
+	}
+
+	@Override
 	public Object getUserData()
 	{
 		return super.getUserData();
@@ -302,7 +307,16 @@ public final class Bucket extends AbstractContainer
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			return "limits: " + limits + ", userData: " + userData;
+			StringJoiner properties = new StringJoiner(",\n");
+			StringJoiner limitsJoiner = new StringJoiner(", ");
+			for (Limit limit : limits)
+				limitsJoiner.add(limit.toString());
+			properties.add("limits: " + limitsJoiner);
+			properties.add("userData: " + userData);
+			return "\n" +
+				"[\n" +
+				"\t" + properties.toString().replaceAll("\n", "\n\t") + "\n" +
+				"]";
 		}
 	}
 
@@ -313,7 +327,8 @@ public final class Bucket extends AbstractContainer
 	{
 		private final ReadWriteLockAsResource lock;
 		private final Consumer<Bucket> consumer;
-		private final Set<Limit> limits = new HashSet<>();
+		private final List<Limit> limits = new ArrayList<>();
+		private final List<ContainerListener> listeners = new ArrayList<>();
 		private Object userData;
 
 		/**
@@ -337,7 +352,7 @@ public final class Bucket extends AbstractContainer
 		 * @return the limits that the bucket must respect
 		 */
 		@CheckReturnValue
-		public Set<Limit> limits()
+		public List<Limit> limits()
 		{
 			return limits;
 		}
@@ -355,6 +370,30 @@ public final class Bucket extends AbstractContainer
 		{
 			requireThat(limitBuilder, "limitBuilder").isNotNull();
 			limitBuilder.accept(new Limit.Builder(limits::add));
+			return this;
+		}
+
+		/**
+		 * Returns the event listeners associated with this bucket.
+		 *
+		 * @return this
+		 */
+		public List<ContainerListener> listeners()
+		{
+			return listeners;
+		}
+
+		/**
+		 * Adds an event listener to the bucket.
+		 *
+		 * @param listener a listener
+		 * @return this
+		 * @throws NullPointerException if {@code listener} is null
+		 */
+		public Builder addListener(ContainerListener listener)
+		{
+			requireThat(listener, "listener").isNotNull();
+			listeners.add(listener);
 			return this;
 		}
 
@@ -392,7 +431,7 @@ public final class Bucket extends AbstractContainer
 			// Locking because of https://stackoverflow.com/a/41990379/14731
 			try (CloseableLock ignored = lock.writeLock())
 			{
-				Bucket bucket = new Bucket(limits, userData, lock);
+				Bucket bucket = new Bucket(limits, listeners, userData, lock);
 				for (Limit limit : limits)
 				{
 					limit.bucket = bucket;
@@ -411,7 +450,8 @@ public final class Bucket extends AbstractContainer
 	 */
 	public final class ConfigurationUpdater
 	{
-		private final Set<Limit> limits;
+		private final List<Limit> limits;
+		private final List<ContainerListener> listeners;
 		private Object userData;
 		private boolean changed;
 		private boolean wakeConsumers;
@@ -423,7 +463,8 @@ public final class Bucket extends AbstractContainer
 		{
 			try (CloseableLock ignored = lock.readLock())
 			{
-				this.limits = new HashSet<>(Bucket.this.limits);
+				this.limits = new ArrayList<>(Bucket.this.limits);
+				this.listeners = new ArrayList<>(Bucket.this.listeners);
 				this.userData = Bucket.this.userData;
 			}
 		}
@@ -434,7 +475,7 @@ public final class Bucket extends AbstractContainer
 		 * @return the limits that the bucket must respect
 		 */
 		@CheckReturnValue
-		public Set<Limit> limits()
+		public List<Limit> limits()
 		{
 			return limits;
 		}
@@ -454,8 +495,8 @@ public final class Bucket extends AbstractContainer
 			// wake sleeping consumers.
 			limitBuilder.accept(new Limit.Builder(e ->
 			{
-				if (limits.add(e))
-					changed = true;
+				limits.add(e);
+				changed = true;
 			}));
 			return this;
 		}
@@ -491,6 +532,36 @@ public final class Bucket extends AbstractContainer
 				return this;
 			changed = true;
 			limits.clear();
+			return this;
+		}
+
+		/**
+		 * Adds an event listener to the bucket.
+		 *
+		 * @param listener a listener
+		 * @return this
+		 * @throws NullPointerException if {@code listener} is null
+		 */
+		public ConfigurationUpdater addListener(ContainerListener listener)
+		{
+			requireThat(listener, "listener").isNotNull();
+			changed = true;
+			listeners.add(listener);
+			return this;
+		}
+
+		/**
+		 * Removes an event listener from the bucket.
+		 *
+		 * @param listener a listener
+		 * @return this
+		 * @throws NullPointerException if {@code listener} is null
+		 */
+		public ConfigurationUpdater removeListener(ContainerListener listener)
+		{
+			requireThat(listener, "listener").isNotNull();
+			if (listeners.remove(listener))
+				changed = true;
 			return this;
 		}
 
@@ -536,6 +607,7 @@ public final class Bucket extends AbstractContainer
 				CONTAINER_SECRETS.updateChild(parent, Bucket.this, () ->
 				{
 					Bucket.this.limits = List.copyOf(limits);
+					Bucket.this.listeners = List.copyOf(listeners);
 					Bucket.this.userData = userData;
 				});
 				if (wakeConsumers)
