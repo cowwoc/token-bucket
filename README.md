@@ -1,4 +1,4 @@
-[![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.cowwoc.token-bucket/java/badge.svg)](https://search.maven.org/search?q=g:com.github.cowwoc.token-bucket)
+[![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.cowwoc.token-bucket/token-bucket/badge.svg)](https://search.maven.org/search?q=g:com.github.cowwoc.token-bucket)
 [![build-status](../../workflows/Build/badge.svg)](../../actions?query=workflow%3ABuild)
 
 # <img src="wiki/bucket.svg" width=64 height=64 alt="checklist"> Token-Bucket
