@@ -1,6 +1,21 @@
 Minor updates involving cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
+## Version 4.0 - 2022/02/25
+
+* Breaking changes:
+    * Bucket
+        * `Builder`/`ConfigurationUpdater.getLimits()` returns a List instead of a Set.
+
+* New features
+    * Added `ContainerListener` used to listen to Container events.
+
+* Improvements
+    * `ContainerList/Bucket/Limit.toString()` now shows properties on different lines.
+
+* Bugfixes
+    * `Limit.refill()` calculation error caused tokensAddedInCurrentPeriod to surpass tokensPerPeriod.
+
 ## Version 3.0 - 2022/02/24
 
 * Breaking changes:

@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.StringJoiner;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -119,22 +120,23 @@ public final class ContainerList extends AbstractContainer
 	/**
 	 * Creates a new ContainerList.
 	 *
+	 * @param listeners           the event listeners associated with this list
+	 * @param children            the children in this list
+	 * @param userData            the data associated with this list
 	 * @param lock                the lock over the list's state
 	 * @param consumptionFunction indicates how tokens are consumed
-	 * @param children            the children in this list
 	 * @throws NullPointerException     if any of the arguments (aside from {@code userData}) are null
 	 * @throws IllegalArgumentException if {@code children} are empty
 	 */
-	private ContainerList(List<AbstractContainer> children, ReadWriteLockAsResource lock,
-	                      ConsumptionPolicy consumptionPolicy, ConsumptionFunction consumptionFunction,
-	                      Object userData)
+	private ContainerList(List<ContainerListener> listeners, List<AbstractContainer> children, Object userData,
+	                      ReadWriteLockAsResource lock, ConsumptionPolicy consumptionPolicy,
+	                      ConsumptionFunction consumptionFunction)
 	{
-		super(lock, consumptionFunction);
+		super(listeners, userData, lock, consumptionFunction);
 		assertThat(children, "children").isNotEmpty();
 		assertThat(consumptionPolicy, "consumptionPolicy").isNotNull();
-		this.children = children;
+		this.children = List.copyOf(children);
 		this.consumptionPolicy = consumptionPolicy;
-		this.userData = userData;
 	}
 
 	@Override
@@ -151,7 +153,7 @@ public final class ContainerList extends AbstractContainer
 		};
 
 		if (parent == null)
-			update.run();
+			task.run();
 		else
 			CONTAINER_SECRETS.updateChild(parent, this, update);
 	}
@@ -171,7 +173,10 @@ public final class ContainerList extends AbstractContainer
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			return List.copyOf(children);
+			// This is safe because the list is unmodifiable
+			@SuppressWarnings("unchecked")
+			List<Container> children = (List<Container>) (List<?>) this.children;
+			return children;
 		}
 	}
 
@@ -218,8 +223,17 @@ public final class ContainerList extends AbstractContainer
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			return "consumptionPolicy: " + consumptionPolicy + ", children: " + children + ", userData: " +
-				userData;
+			StringJoiner properties = new StringJoiner(",\n");
+			properties.add("consumptionPolicy: " + consumptionPolicy);
+			StringJoiner childrenJoiner = new StringJoiner(", ");
+			for (Container child : children)
+				childrenJoiner.add(child.toString());
+			properties.add("children: " + childrenJoiner);
+			properties.add("userData: " + userData);
+			return "\n" +
+				"[\n" +
+				"\t" + properties.toString().replaceAll("\n", "\n\t") + "\n" +
+				"]";
 		}
 	}
 
@@ -242,12 +256,13 @@ public final class ContainerList extends AbstractContainer
 	 */
 	public static final class Builder
 	{
+		private final List<ContainerListener> listeners = new ArrayList<>();
+		private final List<AbstractContainer> children = new ArrayList<>();
+		private Object userData;
 		private final ReadWriteLockAsResource lock;
 		private final Consumer<ContainerList> consumer;
 		private ConsumptionPolicy consumptionPolicy;
 		private ConsumptionFunction consumptionFunction;
-		private final List<AbstractContainer> children = new ArrayList<>();
-		private Object userData;
 
 		/**
 		 * Creates a new builder.
@@ -303,6 +318,30 @@ public final class ContainerList extends AbstractContainer
 		{
 			this.consumptionPolicy = ConsumptionPolicy.CONSUME_FROM_ALL;
 			this.consumptionFunction = CONSUME_FROM_ALL_POLICY;
+			return this;
+		}
+
+		/**
+		 * Returns the event listeners associated with this list.
+		 *
+		 * @return this
+		 */
+		public List<ContainerListener> listeners()
+		{
+			return listeners;
+		}
+
+		/**
+		 * Adds an event listener to the list.
+		 *
+		 * @param listener a listener
+		 * @return this
+		 * @throws NullPointerException if {@code listener} is null
+		 */
+		public Builder addListener(ContainerListener listener)
+		{
+			requireThat(listener, "listener").isNotNull();
+			listeners.add(listener);
 			return this;
 		}
 
@@ -380,8 +419,8 @@ public final class ContainerList extends AbstractContainer
 		 */
 		public ContainerList build()
 		{
-			ContainerList containerList = new ContainerList(children, lock, consumptionPolicy,
-				consumptionFunction, userData);
+			ContainerList containerList = new ContainerList(listeners, children, userData, lock, consumptionPolicy,
+				consumptionFunction);
 			consumer.accept(containerList);
 			return containerList;
 		}
@@ -396,6 +435,7 @@ public final class ContainerList extends AbstractContainer
 	{
 		private ConsumptionFunction consumptionFunction;
 		private ConsumptionPolicy consumptionPolicy;
+		private final List<ContainerListener> listeners;
 		private final List<AbstractContainer> children;
 		private final Consumer<AbstractContainer> addChild;
 		private Object userData;
@@ -409,10 +449,11 @@ public final class ContainerList extends AbstractContainer
 		{
 			try (CloseableLock ignored = lock.readLock())
 			{
+				this.listeners = new ArrayList<>(ContainerList.this.listeners);
 				this.children = new ArrayList<>(ContainerList.this.children);
+				this.userData = ContainerList.this.userData;
 				this.consumptionFunction = ContainerList.this.consumptionFunction;
 				this.consumptionPolicy = ContainerList.this.consumptionPolicy;
-				this.userData = ContainerList.this.userData;
 			}
 			this.addChild = child ->
 			{
@@ -586,7 +627,8 @@ public final class ContainerList extends AbstractContainer
 			{
 				CONTAINER_SECRETS.updateChild(parent, ContainerList.this, () ->
 				{
-					ContainerList.this.children = children;
+					ContainerList.this.children = List.copyOf(children);
+					ContainerList.this.listeners = List.copyOf(listeners);
 					ContainerList.this.consumptionPolicy = consumptionPolicy;
 					ContainerList.this.consumptionFunction = consumptionFunction;
 					ContainerList.this.userData = userData;

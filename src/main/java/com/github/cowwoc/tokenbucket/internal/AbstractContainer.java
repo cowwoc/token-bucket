@@ -3,6 +3,7 @@ package com.github.cowwoc.tokenbucket.internal;
 import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.ConsumptionResult;
 import com.github.cowwoc.tokenbucket.Container;
+import com.github.cowwoc.tokenbucket.ContainerListener;
 import com.github.cowwoc.tokenbucket.Limit;
 import org.slf4j.Logger;
 
@@ -100,6 +101,7 @@ public abstract class AbstractContainer implements Container
 	 */
 	protected abstract Logger getLogger();
 
+	protected List<ContainerListener> listeners;
 	/**
 	 * Returns the lock over the bucket's state.
 	 * <p>
@@ -128,14 +130,20 @@ public abstract class AbstractContainer implements Container
 	/**
 	 * Creates a new AbstractBucket.
 	 *
+	 * @param listeners           the event listeners associated with this container
+	 * @param userData            the data associated with this container
 	 * @param lock                the lock over the bucket's state
 	 * @param consumptionFunction indicates how tokens are consumed
-	 * @throws NullPointerException if any of the arguments are null
+	 * @throws NullPointerException if {@code listeners}, {@code lock} or {@code consumptionFunction} are null
 	 */
-	protected AbstractContainer(ReadWriteLockAsResource lock, ConsumptionFunction consumptionFunction)
+	protected AbstractContainer(List<ContainerListener> listeners, Object userData,
+	                            ReadWriteLockAsResource lock, ConsumptionFunction consumptionFunction)
 	{
+		assertThat(listeners, "listeners").isNotNull();
 		assertThat(lock, "lock").isNotNull();
 		requireThat(consumptionFunction, "consumptionFunction").isNotNull();
+		this.listeners = List.copyOf(listeners);
+		this.userData = userData;
 		this.lock = lock;
 		this.consumptionFunction = consumptionFunction;
 		this.tokensUpdated = lock.newCondition();
@@ -155,7 +163,15 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
-	@CheckReturnValue
+	public List<ContainerListener> getListeners()
+	{
+		try (CloseableLock ignored = lock.readLock())
+		{
+			return listeners;
+		}
+	}
+
+	@Override
 	public Object getUserData()
 	{
 		return userData;
@@ -286,13 +302,36 @@ public abstract class AbstractContainer implements Container
 					nameOfMinimumTokens, requestedAt, this);
 				if (consumptionResult.isSuccessful() || timeout.apply(consumptionResult))
 					return consumptionResult;
-				requestedAt = Instant.now();
+				log.debug("consumptionResult: {}", consumptionResult);
 				Duration timeLeft = consumptionResult.getAvailableIn();
 				log.debug("Sleeping {}", timeLeft);
 				log.debug("State before sleep: {}", this);
+				notifyBeforeSleep(this, minimumTokens, requestedAt, consumptionResult.getAvailableAt(),
+					consumptionResult.getBottleneck());
 				Conditions.await(tokensUpdated, timeLeft);
 				log.debug("State after sleep: {}", this);
+				// Update the time in order to trigger bucket refills
+				requestedAt = Instant.now();
 			}
 		}
+	}
+
+	/**
+	 * Invoked before sleeping to wait for more tokens.
+	 *
+	 * @param container   the container the thread is waiting on
+	 * @param tokens      the number of tokens that the thread is waiting for
+	 * @param requestedAt the time at which the tokens were requested
+	 * @param availableAt the time at which the requested tokens are expected to become available
+	 * @param bottleneck  the list of Limits that are preventing tokens from being consumed
+	 * @throws InterruptedException if the operation should be interrupted
+	 */
+	protected void notifyBeforeSleep(Container container, long tokens, Instant requestedAt, Instant availableAt,
+	                                 List<Limit> bottleneck) throws InterruptedException
+	{
+		if (parent != null)
+			parent.notifyBeforeSleep(container, tokens, requestedAt, availableAt, bottleneck);
+		for (ContainerListener listener : listeners)
+			listener.beforeSleep(container, tokens, requestedAt, availableAt, bottleneck);
 	}
 }

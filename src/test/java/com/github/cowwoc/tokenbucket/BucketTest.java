@@ -65,9 +65,21 @@ public final class BucketTest
 		{
 			requestAt = requestAt.plus(timeIncrement);
 			limit.refill(requestAt);
+			requireThat(limit.availableTokens, "limit.availableTokens").
+				isEqualTo((long) ((double) tokens * i / seconds));
 		}
-		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").
+		requireThat(limit.availableTokens, "limit.availableTokens").
 			isEqualTo(limit.getTokensPerPeriod());
+
+		for (int i = 1; i <= seconds; ++i)
+		{
+			requestAt = requestAt.plus(timeIncrement);
+			limit.refill(requestAt);
+			requireThat(limit.availableTokens, "limit.availableTokens").
+				isEqualTo(tokens + (long) ((double) tokens * i / seconds));
+		}
+		requireThat(limit.availableTokens, "limit.availableTokens").
+			isEqualTo(2 * limit.getTokensPerPeriod());
 	}
 
 	@Test
@@ -83,7 +95,7 @@ public final class BucketTest
 			build();
 
 		Limit limit = bucket.getLimits().iterator().next();
-		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").isNegative();
+		requireThat(limit.availableTokens, "limit.getAvailableTokens()").isNegative();
 
 		ConsumptionResult consumptionResult = bucket.tryConsume();
 		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
@@ -103,13 +115,13 @@ public final class BucketTest
 			build();
 
 		Limit limit = bucket.getLimits().iterator().next();
-		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").isPositive();
+		requireThat(limit.availableTokens, "limit.getAvailableTokens()").isPositive();
 		ConsumptionResult consumptionResult = bucket.tryConsume();
 		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
 			isEqualTo(Duration.ZERO);
 
 		limit.updateConfiguration().availableTokens(-100).apply();
-		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").isNegative();
+		requireThat(limit.availableTokens, "limit.getAvailableTokens()").isNegative();
 		consumptionResult = bucket.tryConsume();
 		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
 			isGreaterThanOrEqualTo(Duration.ofSeconds(90));
@@ -152,7 +164,7 @@ public final class BucketTest
 			build();
 
 		Limit limit = bucket.getLimits().iterator().next();
-		requireThat(limit.getAvailableTokens(), "limit.getAvailableTokens()").isZero();
+		requireThat(limit.availableTokens, "limit.getAvailableTokens()").isZero();
 
 		ConsumptionResult consumptionResult = bucket.tryConsume();
 		requireThat(consumptionResult.getTokensConsumed(), "consumptionResult.getTokensConsumed()").
@@ -175,7 +187,10 @@ public final class BucketTest
 			build();
 
 		Limit limit = bucket.getLimits().iterator().next();
-		long tokensAdded = limit.refill(limit.lastRefilledAt.plusSeconds(5));
+		long tokensBefore = limit.availableTokens;
+		limit.refill(limit.lastRefilledAt.plusSeconds(5));
+		long tokensAfter = limit.availableTokens;
+		long tokensAdded = tokensAfter - tokensBefore;
 		requireThat(tokensAdded, "tokensAdded").isEqualTo(4L);
 	}
 
@@ -202,5 +217,29 @@ public final class BucketTest
 		requireThat(bottleneck, "bottleneck").size().isEqualTo(1);
 		Limit limit = bottleneck.get(0);
 		requireThat(limit.getUserData(), "limit.getUserData()").isEqualTo("second");
+	}
+
+	@Test
+	public void updateTokensPerPeriod()
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(Builder::build).
+			build();
+
+		Limit limit = bucket.getLimits().iterator().next();
+		limit.lastRefilledAt = Instant.now();
+		Instant requestAt = limit.lastRefilledAt;
+		Duration ONE_SECOND = Duration.ofSeconds(1);
+		long expectedTokens = 0;
+		for (int i = 1; i <= 10; ++i)
+		{
+			requestAt = requestAt.plus(ONE_SECOND);
+			limit.refill(requestAt);
+			expectedTokens += i;
+			limit.updateConfiguration().
+				tokensPerPeriod(i + 1).
+				apply();
+			requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(expectedTokens);
+		}
 	}
 }
