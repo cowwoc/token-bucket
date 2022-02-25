@@ -124,7 +124,7 @@ public final class Bucket extends AbstractContainer
 	}
 
 	/**
-	 * Adds tokens to the bucket without surpassing any limit's {@code maxCapacity}. The refill rate is not
+	 * Adds tokens to the bucket without surpassing any limit's {@code maximumTokens}. The refill rate is not
 	 * impacted.
 	 *
 	 * @param tokens the number of tokens to add to the bucket
