@@ -1,9 +1,11 @@
 package com.github.cowwoc.tokenbucket;
 
 import com.github.cowwoc.requirements.Requirements;
+import com.github.cowwoc.tokenbucket.Limit.Builder;
 import org.testng.annotations.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
@@ -166,7 +168,7 @@ public final class ContainerListTest
 	@Test
 	public void containerOfContainersConsumeFromOne()
 	{
-		ContainerList parent = ContainerList.builder().
+		ContainerList containerList = ContainerList.builder().
 			consumeFromOne(SelectionPolicy.roundRobin()).
 			addContainerList(child -> child.
 				addBucket(bucket ->
@@ -204,12 +206,12 @@ public final class ContainerListTest
 				userData("list2").
 				build()).build();
 
-		ConsumptionResult consumptionResult = parent.tryConsume(10);
+		ConsumptionResult consumptionResult = containerList.tryConsume(10);
 		Requirements requirements = new Requirements();
 		requirements = requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
 
-		ContainerList list1 = parent.getChildren().stream().filter(child -> child.getUserData().equals("list1")).
+		ContainerList list1 = containerList.getChildren().stream().filter(child -> child.getUserData().equals("list1")).
 			map(container -> (ContainerList) container).
 			findFirst().orElse(null);
 
@@ -222,7 +224,7 @@ public final class ContainerListTest
 			requirements.requireThat(bucket.getAvailableTokens(), "bucket.getAvailableTokens()").isEqualTo(0L);
 		}
 
-		ContainerList list2 = parent.getChildren().stream().filter(child -> child.getUserData().equals("list2")).
+		ContainerList list2 = containerList.getChildren().stream().filter(child -> child.getUserData().equals("list2")).
 			map(container -> (ContainerList) container).
 			findFirst().orElse(null);
 		assert (list2 != null);
@@ -232,11 +234,11 @@ public final class ContainerListTest
 			requirements.requireThat(bucket.getAvailableTokens(), "bucket.getAvailableTokens()").isEqualTo(5L);
 		}
 
-		consumptionResult = parent.tryConsume(10);
+		consumptionResult = containerList.tryConsume(10);
 		requirements = requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isFalse();
 
-		consumptionResult = parent.tryConsume(5);
+		consumptionResult = containerList.tryConsume(5);
 		requirements = requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
 	}
@@ -244,7 +246,7 @@ public final class ContainerListTest
 	@Test
 	public void containerOfContainersConsumeFromAll()
 	{
-		ContainerList parent = ContainerList.builder().
+		ContainerList containerList = ContainerList.builder().
 			addContainerList(child -> child.
 				addBucket(bucket ->
 					bucket.addLimit(limit ->
@@ -284,18 +286,18 @@ public final class ContainerListTest
 			consumeFromAll().
 			build();
 
-		ConsumptionResult consumptionResult = parent.tryConsume(5);
+		ConsumptionResult consumptionResult = containerList.tryConsume(5);
 		Requirements requirements = new Requirements();
 		requirements = requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
 		requirements.requireThat(consumptionResult.getContainer(), "consumptionResult.getContainer()").
-			isEqualTo(parent);
-		for (Container child : parent.getChildren())
+			isEqualTo(containerList);
+		for (Container child : containerList.getChildren())
 		{
 			ContainerList childList = (ContainerList) child;
 			requirements.requireThat(childList.getAvailableTokens(), "childList.getAvailableTokens()").isEqualTo(0L);
 		}
-		consumptionResult = parent.tryConsume(5);
+		consumptionResult = containerList.tryConsume(5);
 		requirements = requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isFalse();
 	}
@@ -322,7 +324,7 @@ public final class ContainerListTest
 			build();
 
 		ConsumptionResult consumptionResult = containerList.tryConsume(1);
-		List<Limit> bottleneck = consumptionResult.getBottleneck();
+		List<Limit> bottleneck = consumptionResult.getBottlenecks();
 		requireThat(bottleneck, "bottleneck").size().isEqualTo(1);
 		Limit limit = bottleneck.get(0);
 		requireThat(limit.getUserData(), "limit.getUserData()").isEqualTo("firstLimit");
@@ -355,9 +357,95 @@ public final class ContainerListTest
 			build();
 
 		ConsumptionResult consumptionResult = containerList.tryConsume(1);
-		List<Limit> bottleneck = consumptionResult.getBottleneck();
+		List<Limit> bottleneck = consumptionResult.getBottlenecks();
 		requireThat(bottleneck, "bottleneck").size().isEqualTo(2);
 		List<String> limitNames = bottleneck.stream().map(limit -> (String) limit.getUserData()).toList();
 		requireThat(limitNames, "limitNames").isEqualTo(List.of("firstLimit", "thirdLimit"));
+	}
+
+	@Test
+	public void bucketUpdateConfigurationRetainsOrder()
+	{
+		ContainerList containerList = ContainerList.builder().
+			consumeFromOne(SelectionPolicy.roundRobin()).
+			addBucket(bucket ->
+				bucket.addLimit(Builder::build).
+					userData("firstBucket").
+					build()).
+			addBucket(bucket ->
+				bucket.addLimit(Builder::build).
+					userData("secondBucket").
+					build()).
+			build();
+
+		List<Object> oldOrder = new ArrayList<>(containerList.getChildren().stream().map(Container::getUserData).
+			toList());
+		for (Container child : containerList.getChildren())
+		{
+			Bucket bucket = (Bucket) child;
+			Bucket.ConfigurationUpdater configurationUpdater = bucket.updateConfiguration();
+			configurationUpdater.
+				addLimit(Builder::build).
+				apply();
+			List<Object> newOrder = containerList.getChildren().stream().map(Container::getUserData).toList();
+			requireThat(newOrder, "newOrder").isEqualTo(oldOrder, "oldOrder");
+		}
+	}
+
+	@Test
+	public void containerListUpdateConfigurationRetainsOrder()
+	{
+		ContainerList containerList = ContainerList.builder().
+			addContainerList(child -> child.
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(5).
+								userData("limit1").
+								build()).
+						userData("bucket1").
+						build()).
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(5).
+								userData("limit1").
+								build()).
+						userData("bucket2").
+						build()).
+				consumeFromAll().
+				userData("list1").
+				build()).
+			addContainerList(child -> child.
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(5).
+								userData("limit3").
+								build()).
+						userData("bucket3").
+						build()).
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(5).
+								userData("limit4").
+								build()).
+						userData("bucket4").
+						build()).
+				consumeFromAll().
+				userData("list2").
+				build()).
+			consumeFromAll().
+			build();
+
+		List<Object> oldOrder = new ArrayList<>(containerList.getChildren().stream().map(Container::getUserData).
+			toList());
+		for (Container child : containerList.getChildren())
+		{
+			ContainerList nestedList = (ContainerList) child;
+			ContainerList.ConfigurationUpdater configurationUpdater = nestedList.updateConfiguration();
+			configurationUpdater.
+				consumeFromOne(SelectionPolicy.roundRobin()).
+				apply();
+			List<Object> newOrder = containerList.getChildren().stream().map(Container::getUserData).toList();
+			requireThat(newOrder, "newOrder").isEqualTo(oldOrder, "oldOrder");
+		}
 	}
 }

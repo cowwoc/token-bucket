@@ -92,19 +92,6 @@ public final class Bucket extends AbstractContainer
 	}
 
 	@Override
-	protected void updateChild(Object child, Runnable update)
-	{
-		Limit limit = (Limit) child;
-		List<Limit> newLimits = new ArrayList<>(limits);
-		newLimits.remove(limit);
-
-		update.run();
-
-		newLimits.add(limit);
-		limits = List.copyOf(newLimits);
-	}
-
-	@Override
 	protected Logger getLogger()
 	{
 		return log;
@@ -308,10 +295,12 @@ public final class Bucket extends AbstractContainer
 		try (CloseableLock ignored = lock.readLock())
 		{
 			StringJoiner properties = new StringJoiner(",\n");
+
 			StringJoiner limitsJoiner = new StringJoiner(", ");
 			for (Limit limit : limits)
 				limitsJoiner.add(limit.toString());
 			properties.add("limits: " + limitsJoiner);
+
 			properties.add("userData: " + userData);
 			return "\n" +
 				"[\n" +
@@ -604,12 +593,9 @@ public final class Bucket extends AbstractContainer
 				return;
 			try (CloseableLock ignored = lock.writeLock())
 			{
-				CONTAINER_SECRETS.updateChild(parent, Bucket.this, () ->
-				{
-					Bucket.this.limits = List.copyOf(limits);
-					Bucket.this.listeners = List.copyOf(listeners);
-					Bucket.this.userData = userData;
-				});
+				Bucket.this.limits = List.copyOf(limits);
+				Bucket.this.listeners = List.copyOf(listeners);
+				Bucket.this.userData = userData;
 				if (wakeConsumers)
 					tokensUpdated.signalAll();
 			}

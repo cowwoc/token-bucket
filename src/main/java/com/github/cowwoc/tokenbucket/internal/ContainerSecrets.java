@@ -13,16 +13,6 @@ import java.util.List;
 public interface ContainerSecrets
 {
 	/**
-	 * Updates a child.
-	 *
-	 * @param container the container
-	 * @param child     the container's child
-	 * @param update    updates the child
-	 * @throws NullPointerException if any of the arguments are null
-	 */
-	void updateChild(AbstractContainer container, Object child, Runnable update);
-
-	/**
 	 * Returns the number of tokens that are available, without triggering a refill.
 	 *
 	 * @param container the container

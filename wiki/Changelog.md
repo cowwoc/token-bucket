@@ -6,6 +6,8 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 * Breaking changes:
     * Bucket
         * `Builder`/`ConfigurationUpdater.getLimits()` returns a List instead of a Set.
+    * ConsumptionResult
+        * Renamed `bottleneck` to `bottlenecks`.
 
 * New features
     * Added `ContainerListener` used to listen to Container events.
@@ -15,37 +17,41 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
 * Bugfixes
     * `Limit.refill()` calculation error caused tokensAddedInCurrentPeriod to surpass tokensPerPeriod.
+    * `Limit/Bucket/ContainerList.updateConfiguration()` no longer updates the bucket's position in the
+      parent's list
 
 ## Version 3.0 - 2022/02/24
 
 * Breaking changes:
     * Limits
-        * Renamed tokensAvailable to availableTokens.
-        * Renamed maxTokens to maximumTokens.
-        * Renamed minimumToRefill to minimumRefill.
-        * Renamed minimumRefill to refillSize.
+        * Renamed `tokensAvailable` to `availableTokens`.
+        * Renamed `maxTokens` to `maximumTokens`.
+        * Renamed `minimumToRefill` to `minimumRefill`.
+        * Renamed `minimumRefill` to `refillSize`.
     * Bucket
         * Retain insertion order of limits.
     * Container
-        * Renamed consumeRange() to consume().
+        * Renamed `consumeRange()` to `consume()`.
         * Disallow consumption of zero tokens.
     * ConsumptionResult
-        * Renamed getTokensAvailableAt() to getAvailableAt().
-        * Renamed getTokensAvailableIn() to getAvailableIn().
+        * Renamed `getTokensAvailableAt()` to `getAvailableAt()`.
+        * Renamed `getTokensAvailableIn()` to `getAvailableIn()`.
 * New features
-    * Ability to look up existing values from Builder, ConfigurationUpdater classes.
-    * Ability to navigate from a Limit to its Bucket and a Container to its parent.
+    * Ability to look up existing values from `Builder`, `ConfigurationUpdater` classes.
+    * Ability to navigate from a `Limit` to its `Bucket` and a `Container` to its parent.
+    * Added `ConsumptionResult.getBottleneck()` which returns the list of Limits that are preventing
+      consumption.
 * Improvements:
     * Don't wake up consumers unless the number of tokens is positive.
-    * Allow negative Limit.initialTokens, availableTokens.
+    * Allow negative `Limit.initialTokens`, `availableTokens`.
 * Bugfixes:
-    * ContainerList.updateConfiguration() was not updating the consumption policy.
+    * `ContainerList.updateConfiguration()` was not updating the consumption policy.
 
 ## Version 2.0 - 2022/02/21
 
 * Breaking changes:
     * Added `Limit.builder()`, `Bucket.builder()`, `ContainerList.builder()`.
-    * `try/consume()` returns ConsumptionResult instead of a boolean.
+    * `try/consume()` returns `ConsumptionResult` instead of a `boolean`.
 * New features:
     * Ability to consume tokens from a container that contains one or more buckets.
     * Ability to consume a variable number of tokens using `try/consumeRange(minimumTokens, maximumTokens)`.

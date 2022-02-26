@@ -1,10 +1,12 @@
 package com.github.cowwoc.tokenbucket;
 
 import com.github.cowwoc.tokenbucket.Limit.Builder;
+import com.github.cowwoc.tokenbucket.Limit.ConfigurationUpdater;
 import org.testng.annotations.Test;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
@@ -213,7 +215,7 @@ public final class BucketTest
 			build();
 
 		ConsumptionResult consumptionResult = bucket.tryConsume(1);
-		List<Limit> bottleneck = consumptionResult.getBottleneck();
+		List<Limit> bottleneck = consumptionResult.getBottlenecks();
 		requireThat(bottleneck, "bottleneck").size().isEqualTo(1);
 		Limit limit = bottleneck.get(0);
 		requireThat(limit.getUserData(), "limit.getUserData()").isEqualTo("second");
@@ -240,6 +242,36 @@ public final class BucketTest
 				tokensPerPeriod(i + 1).
 				apply();
 			requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(expectedTokens);
+		}
+	}
+
+	@Test
+	public void limitUpdateConfigurationRetainsOrder()
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit ->
+				limit.tokensPerPeriod(1).
+					period(Duration.ofMinutes(1)).
+					refillSize(1).
+					userData("first").
+					build()).
+			addLimit(limit ->
+				limit.tokensPerPeriod(1).
+					period(Duration.ofMinutes(10)).
+					refillSize(1).
+					userData("second").
+					build()).
+			build();
+
+		List<Object> oldOrder = new ArrayList<>(bucket.getLimits().stream().map(Limit::getUserData).toList());
+		for (Limit limit : bucket.getLimits())
+		{
+			ConfigurationUpdater configurationUpdater = limit.updateConfiguration();
+			configurationUpdater.
+				tokensPerPeriod(configurationUpdater.tokensPerPeriod() + 1).
+				apply();
+			List<Object> newOrder = bucket.getLimits().stream().map(Limit::getUserData).toList();
+			requireThat(newOrder, "newOrder").isEqualTo(oldOrder, "oldOrder");
 		}
 	}
 }

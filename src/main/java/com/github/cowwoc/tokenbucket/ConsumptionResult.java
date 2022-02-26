@@ -21,7 +21,7 @@ public final class ConsumptionResult
 	private final long tokensConsumed;
 	private final Instant requestedAt;
 	private final Instant availableAt;
-	private final List<Limit> bottleneck;
+	private final List<Limit> bottlenecks;
 
 	/**
 	 * Creates a result of a request to consume tokens.
@@ -33,7 +33,7 @@ public final class ConsumptionResult
 	 * @param requestedAt            the time at which the tokens were requested
 	 * @param availableAt            the time at which the requested tokens are expected to become available.
 	 *                               If tokens were consumed, this value is equal to {@code requestedAt}.
-	 * @param bottleneck             the list of Limits that are preventing tokens from being consumed (empty if
+	 * @param bottlenecks            the list of Limits that are preventing tokens from being consumed (empty if
 	 *                               none)
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code minimumTokensRequested} or {@code maximumTokensRequests}
@@ -43,7 +43,7 @@ public final class ConsumptionResult
 	 */
 	public ConsumptionResult(Container container, long minimumTokensRequested, long maximumTokensRequested,
 	                         long tokensConsumed, Instant requestedAt, Instant availableAt,
-	                         List<Limit> bottleneck)
+	                         List<Limit> bottlenecks)
 	{
 		assertThat(container, "container").isNotNull();
 		assertThat(minimumTokensRequested, "minimumTokensRequested").isPositive();
@@ -57,14 +57,14 @@ public final class ConsumptionResult
 		}
 		assertThat(requestedAt, "requestedAt").isNotNull();
 		assertThat(availableAt, "availableAt").isNotNull();
-		assertThat(bottleneck, "bottleneck").isNotNull();
+		assertThat(bottlenecks, "bottlenecks").isNotNull();
 		this.container = container;
 		this.minimumTokensRequested = minimumTokensRequested;
 		this.maximumTokensRequested = maximumTokensRequested;
 		this.tokensConsumed = tokensConsumed;
 		this.requestedAt = requestedAt;
 		this.availableAt = availableAt;
-		this.bottleneck = bottleneck;
+		this.bottlenecks = bottlenecks;
 	}
 
 	/**
@@ -144,9 +144,9 @@ public final class ConsumptionResult
 	 *
 	 * @return empty if tokens were consumed
 	 */
-	public List<Limit> getBottleneck()
+	public List<Limit> getBottlenecks()
 	{
-		return bottleneck;
+		return bottlenecks;
 	}
 
 	@Override
@@ -157,14 +157,14 @@ public final class ConsumptionResult
 		return other.container == container && other.minimumTokensRequested == minimumTokensRequested &&
 			other.maximumTokensRequested == maximumTokensRequested && other.tokensConsumed == tokensConsumed &&
 			other.requestedAt.equals(requestedAt) && other.availableAt.equals(availableAt) &&
-			other.getBottleneck().equals(bottleneck);
+			other.getBottlenecks().equals(bottlenecks);
 	}
 
 	@Override
 	public int hashCode()
 	{
 		return Objects.hash(container, minimumTokensRequested, maximumTokensRequested, tokensConsumed,
-			requestedAt, availableAt, bottleneck);
+			requestedAt, availableAt, bottlenecks);
 	}
 
 	@Override
@@ -177,7 +177,12 @@ public final class ConsumptionResult
 		properties.add("maximumTokensRequested: " + maximumTokensRequested);
 		properties.add("requestedAt: " + requestedAt);
 		properties.add("availableAt: " + availableAt);
-		properties.add("bottleneck: " + bottleneck);
+
+		StringJoiner bottlenecksJoiner = new StringJoiner(", ");
+		for (Limit bottlenecks : bottlenecks)
+			bottlenecksJoiner.add(bottlenecks.toString());
+
+		properties.add("bottlenecks: " + bottlenecksJoiner);
 		properties.add("container: " + container);
 		return "\n" +
 			"[\n" +

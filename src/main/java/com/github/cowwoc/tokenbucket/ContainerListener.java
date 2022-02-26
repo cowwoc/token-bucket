@@ -18,11 +18,11 @@ public interface ContainerListener
 	 * @param tokens      the number of tokens that the thread is waiting for
 	 * @param requestedAt the time at which the tokens were requested
 	 * @param availableAt the time at which the requested tokens are expected to become available
-	 * @param bottleneck  the list of Limits that are preventing tokens from being consumed
+	 * @param bottlenecks the list of Limits that are preventing tokens from being consumed
 	 * @throws InterruptedException if the operation should be interrupted
 	 */
 	default void beforeSleep(Container container, long tokens, Instant requestedAt, Instant availableAt,
-	                         List<Limit> bottleneck)
+	                         List<Limit> bottlenecks)
 		throws InterruptedException
 	{
 	}

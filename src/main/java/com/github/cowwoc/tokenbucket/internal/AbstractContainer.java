@@ -29,12 +29,6 @@ public abstract class AbstractContainer implements Container
 		SharedSecrets.INSTANCE.containerSecrets = new ContainerSecrets()
 		{
 			@Override
-			public void updateChild(AbstractContainer container, Object child, Runnable update)
-			{
-				container.updateChild(child, update);
-			}
-
-			@Override
 			public long getAvailableTokens(AbstractContainer container)
 			{
 				return container.getAvailableTokens();
@@ -64,15 +58,6 @@ public abstract class AbstractContainer implements Container
 			}
 		};
 	}
-
-	/**
-	 * Updates a child.
-	 *
-	 * @param child  the child
-	 * @param update updates the child
-	 * @throws NullPointerException if any of the arguments are null
-	 */
-	protected abstract void updateChild(Object child, Runnable update);
 
 	/**
 	 * Returns the number of tokens that are available, without triggering a refill.
@@ -307,7 +292,7 @@ public abstract class AbstractContainer implements Container
 				log.debug("Sleeping {}", timeLeft);
 				log.debug("State before sleep: {}", this);
 				notifyBeforeSleep(this, minimumTokens, requestedAt, consumptionResult.getAvailableAt(),
-					consumptionResult.getBottleneck());
+					consumptionResult.getBottlenecks());
 				Conditions.await(tokensUpdated, timeLeft);
 				log.debug("State after sleep: {}", this);
 				// Update the time in order to trigger bucket refills

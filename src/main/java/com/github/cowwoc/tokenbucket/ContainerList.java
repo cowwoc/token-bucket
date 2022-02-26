@@ -82,11 +82,11 @@ public final class ContainerList extends AbstractContainer
 				tokensToConsume = Math.min(tokensToConsume, CONTAINER_SECRETS.getAvailableTokens(child));
 			if (tokensToConsume < minimumTokens)
 			{
-				List<Limit> bottleneck = new ArrayList<>();
+				List<Limit> bottlenecks = new ArrayList<>();
 				for (AbstractContainer child : children)
-					bottleneck.addAll(CONTAINER_SECRETS.getLimitsWithInsufficientTokens(child, minimumTokens));
+					bottlenecks.addAll(CONTAINER_SECRETS.getLimitsWithInsufficientTokens(child, minimumTokens));
 				return new ConsumptionResult(containerList, minimumTokens, maximumTokens, 0,
-					requestedAt, requestedAt, bottleneck);
+					requestedAt, requestedAt, bottlenecks);
 			}
 
 			for (AbstractContainer bucket : children)
@@ -137,25 +137,6 @@ public final class ContainerList extends AbstractContainer
 		assertThat(consumptionPolicy, "consumptionPolicy").isNotNull();
 		this.children = List.copyOf(children);
 		this.consumptionPolicy = consumptionPolicy;
-	}
-
-	@Override
-	protected void updateChild(Object child, Runnable update)
-	{
-		Runnable task = () ->
-		{
-			AbstractContainer childContainer = (AbstractContainer) child;
-			children.remove(childContainer);
-
-			update.run();
-
-			children.add(childContainer);
-		};
-
-		if (parent == null)
-			task.run();
-		else
-			CONTAINER_SECRETS.updateChild(parent, this, update);
 	}
 
 	@Override
@@ -225,10 +206,12 @@ public final class ContainerList extends AbstractContainer
 		{
 			StringJoiner properties = new StringJoiner(",\n");
 			properties.add("consumptionPolicy: " + consumptionPolicy);
+
 			StringJoiner childrenJoiner = new StringJoiner(", ");
 			for (Container child : children)
 				childrenJoiner.add(child.toString());
 			properties.add("children: " + childrenJoiner);
+
 			properties.add("userData: " + userData);
 			return "\n" +
 				"[\n" +
@@ -625,14 +608,11 @@ public final class ContainerList extends AbstractContainer
 				return;
 			try (CloseableLock ignored = lock.writeLock())
 			{
-				CONTAINER_SECRETS.updateChild(parent, ContainerList.this, () ->
-				{
-					ContainerList.this.children = List.copyOf(children);
-					ContainerList.this.listeners = List.copyOf(listeners);
-					ContainerList.this.consumptionPolicy = consumptionPolicy;
-					ContainerList.this.consumptionFunction = consumptionFunction;
-					ContainerList.this.userData = userData;
-				});
+				ContainerList.this.children = List.copyOf(children);
+				ContainerList.this.listeners = List.copyOf(listeners);
+				ContainerList.this.consumptionPolicy = consumptionPolicy;
+				ContainerList.this.consumptionFunction = consumptionFunction;
+				ContainerList.this.userData = userData;
 				if (wakeConsumers)
 					tokensUpdated.signalAll();
 			}
