@@ -941,23 +941,20 @@ public final class Limit
 				return;
 			try (CloseableLock ignored = lock.writeLock())
 			{
-				bucket.updateChild(Limit.this, () ->
-				{
-					log.debug("Before updating limit: {}", Limit.this);
-					Limit.this.tokensPerPeriod = tokensPerPeriod;
-					Limit.this.period = period;
-					Limit.this.maximumTokens = maximumTokens;
-					Limit.this.refillSize = refillSize;
-					Limit.this.lastRefilledAt = lastRefilledAt;
-					Limit.this.userData = userData;
+				log.debug("Before updating limit: {}", Limit.this);
+				Limit.this.tokensPerPeriod = tokensPerPeriod;
+				Limit.this.period = period;
+				Limit.this.maximumTokens = maximumTokens;
+				Limit.this.refillSize = refillSize;
+				Limit.this.lastRefilledAt = lastRefilledAt;
+				Limit.this.userData = userData;
 
-					// Overflow the bucket if necessary
-					Limit.this.availableTokens = Math.min(maximumTokens, availableTokens);
+				// Overflow the bucket if necessary
+				Limit.this.availableTokens = Math.min(maximumTokens, availableTokens);
 
-					Limit.this.startOfCurrentPeriod = startOfCurrentPeriod;
-					Limit.this.tokensAddedInCurrentPeriod = tokensAddedInCurrentPeriod;
-					log.debug("After updating limit: {}", Limit.this);
-				});
+				Limit.this.startOfCurrentPeriod = startOfCurrentPeriod;
+				Limit.this.tokensAddedInCurrentPeriod = tokensAddedInCurrentPeriod;
+				log.debug("After updating limit: {}", Limit.this);
 			}
 		}
 	}
