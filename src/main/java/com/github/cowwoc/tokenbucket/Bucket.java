@@ -111,35 +111,28 @@ public final class Bucket extends AbstractContainer
 	}
 
 	/**
-	 * Adds tokens to the bucket without surpassing any limit's {@code maximumTokens}. The refill rate is not
-	 * impacted.
+	 * Returns the limit with the lowest refill rate.
 	 *
-	 * @param tokens the number of tokens to add to the bucket
-	 * @return the number of tokens that were added
-	 * @throws IllegalArgumentException if {@code tokens} is negative or zero
+	 * @return the limit with the lowest refill rate
 	 */
-	@CheckReturnValue
-	public long addTokens(long tokens)
+	public Limit getLimitWithLowestRefillRate()
 	{
-		requireThat(tokens, "tokens").isPositive();
-		long spaceLeft = tokens;
-		try (CloseableLock ignored = lock.writeLock())
+		try (CloseableLock ignored = lock.readLock())
 		{
-			for (Limit limit : limits)
-				spaceLeft = Math.min(spaceLeft, limit.getSpaceLeft());
-			if (spaceLeft > 0)
+			Limit result = limits.get(0);
+			double minimumTokensPerSecond = (double) result.getTokensPerPeriod() / result.getPeriod().toSeconds();
+			for (int i = 1, size = limits.size(); i < size; ++i)
 			{
-				boolean wakeConsumers = true;
-				for (Limit limit : limits)
+				Limit limit = limits.get(i);
+				double tokensPerSecond = (double) limit.getTokensPerPeriod() / limit.getPeriod().toSeconds();
+				if (Double.compare(tokensPerSecond, minimumTokensPerSecond) < 0)
 				{
-					if (!limit.addTokens(spaceLeft))
-						wakeConsumers = false;
+					minimumTokensPerSecond = tokensPerSecond;
+					result = limit;
 				}
-				if (wakeConsumers)
-					tokensUpdated.signalAll();
 			}
+			return result;
 		}
-		return spaceLeft;
 	}
 
 	/**

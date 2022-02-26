@@ -188,16 +188,6 @@ public final class Limit
 	}
 
 	/**
-	 * Returns the maximum number of tokens that can be added before surpassing this Limit's capacity.
-	 *
-	 * @return the maximum number of tokens that can be added before surpassing this Limit's capacity
-	 */
-	long getSpaceLeft()
-	{
-		return maximumTokens - availableTokens;
-	}
-
-	/**
 	 * Refills the limit.
 	 *
 	 * @param requestedAt the time that the tokens were requested at
@@ -235,23 +225,6 @@ public final class Limit
 
 		// Overflow the bucket if necessary
 		availableTokens = Math.min(maximumTokens, saturatedAdd(availableTokens, tokensToAdd));
-	}
-
-	/**
-	 * Adds tokens to the limit. The refill rate is not impacted. Limits will drop any tokens added past
-	 * {@code maximumTokens}.
-	 *
-	 * @param tokens the number of tokens to add to the bucket
-	 * @return true if the number of available tokens is positive
-	 * @throws IllegalArgumentException if {@code tokens} is negative or zero
-	 */
-	@CheckReturnValue
-	boolean addTokens(long tokens)
-	{
-		assertThat(tokens, "tokens").isPositive();
-		availableTokens = saturatedAdd(availableTokens, tokens);
-		assertThat(availableTokens, "availableTokens").isLessThanOrEqualTo(maximumTokens, "maximumTokens");
-		return availableTokens > 0;
 	}
 
 	/**
