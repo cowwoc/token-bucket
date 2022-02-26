@@ -1,5 +1,6 @@
 package com.github.cowwoc.tokenbucket;
 
+import com.github.cowwoc.tokenbucket.Limit.ConfigurationUpdater;
 import org.testng.annotations.Test;
 
 import java.util.List;
@@ -16,6 +17,14 @@ public final class LimitTest
 			build();
 		List<Limit> limits = bucket.getLimits();
 		requireThat(limits, "limits").size().isEqualTo(1);
-		requireThat(limits.iterator().next().getUserData(), "limit.getUserData()").isEqualTo("limit");
+		Limit limit = limits.iterator().next();
+		requireThat(limit.getTokensPerPeriod(), "limit.getTokensPerPeriod()").isEqualTo(1L);
+		requireThat(limit.getUserData(), "limit.getUserData()").isEqualTo("limit");
+
+		try (ConfigurationUpdater update = limit.updateConfiguration())
+		{
+			update.tokensPerPeriod(5);
+		}
+		requireThat(limit.getTokensPerPeriod(), "limit.getTokensPerPeriod()").isEqualTo(5L);
 	}
 }

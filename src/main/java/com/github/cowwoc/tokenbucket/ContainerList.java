@@ -115,6 +115,7 @@ public final class ContainerList extends AbstractContainer
 
 	List<AbstractContainer> children;
 	private ConsumptionPolicy consumptionPolicy;
+	private SelectionPolicy selectionPolicy;
 	private final Logger log = LoggerFactory.getLogger(ContainerList.class);
 
 	/**
@@ -124,19 +125,24 @@ public final class ContainerList extends AbstractContainer
 	 * @param children            the children in this list
 	 * @param userData            the data associated with this list
 	 * @param lock                the lock over the list's state
+	 * @param consumptionPolicy   indicates how tokens are consumed
 	 * @param consumptionFunction indicates how tokens are consumed
-	 * @throws NullPointerException     if any of the arguments (aside from {@code userData}) are null
+	 * @param selectionPolicy     the {@link SelectionPolicy} used by the {@code consumptionPolicy}
+	 *                            ({@code null} if none is used)
+	 * @throws NullPointerException     if any of the arguments (aside from {@code userData}) and
+	 *                                  {@code selectionPolicy} are null
 	 * @throws IllegalArgumentException if {@code children} are empty
 	 */
 	private ContainerList(List<ContainerListener> listeners, List<AbstractContainer> children, Object userData,
 	                      ReadWriteLockAsResource lock, ConsumptionPolicy consumptionPolicy,
-	                      ConsumptionFunction consumptionFunction)
+	                      ConsumptionFunction consumptionFunction, SelectionPolicy selectionPolicy)
 	{
 		super(listeners, userData, lock, consumptionFunction);
 		assertThat(children, "children").isNotEmpty();
 		assertThat(consumptionPolicy, "consumptionPolicy").isNotNull();
 		this.children = List.copyOf(children);
 		this.consumptionPolicy = consumptionPolicy;
+		this.selectionPolicy = selectionPolicy;
 	}
 
 	@Override
@@ -223,12 +229,14 @@ public final class ContainerList extends AbstractContainer
 	/**
 	 * Updates this list's configuration.
 	 * <p>
-	 * Please note that users are allowed to consume tokens between the time this method is invoked and
-	 * {@link ConfigurationUpdater#apply()} completes. Users who wish to add/remove a relative amount of
-	 * tokens should avoid accessing the list or its descendants until the configuration update is complete.
+	 * The ContainerList and any attached Limits, Containers will be locked until
+	 * {@link ConfigurationUpdater#close()} is invoked.
+	 * <p>
+	 * A new period is started immediately after the update takes place.
 	 *
 	 * @return the configuration updater
 	 */
+	@CheckReturnValue
 	public ConfigurationUpdater updateConfiguration()
 	{
 		return new ConfigurationUpdater();
@@ -246,6 +254,7 @@ public final class ContainerList extends AbstractContainer
 		private final Consumer<ContainerList> consumer;
 		private ConsumptionPolicy consumptionPolicy;
 		private ConsumptionFunction consumptionFunction;
+		private SelectionPolicy selectionPolicy;
 
 		/**
 		 * Creates a new builder.
@@ -263,7 +272,7 @@ public final class ContainerList extends AbstractContainer
 			assertThat(consumer, "consumer").isNotNull();
 			this.lock = lock;
 			this.consumer = consumer;
-			consumeFromOne(SelectionPolicy.roundRobin());
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN);
 		}
 
 		/**
@@ -289,6 +298,7 @@ public final class ContainerList extends AbstractContainer
 			requireThat(selectionPolicy, "selectionPolicy").isNotNull();
 			this.consumptionPolicy = ConsumptionPolicy.CONSUME_FROM_ONE;
 			this.consumptionFunction = CONSUME_FROM_ONE_POLICY.apply(selectionPolicy);
+			this.selectionPolicy = selectionPolicy;
 			return this;
 		}
 
@@ -301,6 +311,7 @@ public final class ContainerList extends AbstractContainer
 		{
 			this.consumptionPolicy = ConsumptionPolicy.CONSUME_FROM_ALL;
 			this.consumptionFunction = CONSUME_FROM_ALL_POLICY;
+			this.selectionPolicy = null;
 			return this;
 		}
 
@@ -403,7 +414,7 @@ public final class ContainerList extends AbstractContainer
 		public ContainerList build()
 		{
 			ContainerList containerList = new ContainerList(listeners, children, userData, lock, consumptionPolicy,
-				consumptionFunction);
+				consumptionFunction, selectionPolicy);
 			consumer.accept(containerList);
 			return containerList;
 		}
@@ -414,10 +425,13 @@ public final class ContainerList extends AbstractContainer
 	 * <p>
 	 * <b>Thread-safety</b>: This class is not thread-safe.
 	 */
-	public final class ConfigurationUpdater
+	public final class ConfigurationUpdater implements AutoCloseable
 	{
+		private final CloseableLock writeLock = lock.writeLock();
+		private boolean closed;
 		private ConsumptionFunction consumptionFunction;
 		private ConsumptionPolicy consumptionPolicy;
+		private SelectionPolicy selectionPolicy;
 		private final List<ContainerListener> listeners;
 		private final List<AbstractContainer> children;
 		private final Consumer<AbstractContainer> addChild;
@@ -430,14 +444,12 @@ public final class ContainerList extends AbstractContainer
 		 */
 		private ConfigurationUpdater()
 		{
-			try (CloseableLock ignored = lock.readLock())
-			{
-				this.listeners = new ArrayList<>(ContainerList.this.listeners);
-				this.children = new ArrayList<>(ContainerList.this.children);
-				this.userData = ContainerList.this.userData;
-				this.consumptionFunction = ContainerList.this.consumptionFunction;
-				this.consumptionPolicy = ContainerList.this.consumptionPolicy;
-			}
+			this.listeners = new ArrayList<>(ContainerList.this.listeners);
+			this.children = new ArrayList<>(ContainerList.this.children);
+			this.userData = ContainerList.this.userData;
+			this.consumptionFunction = ContainerList.this.consumptionFunction;
+			this.consumptionPolicy = ContainerList.this.consumptionPolicy;
+			this.selectionPolicy = ContainerList.this.selectionPolicy;
 			this.addChild = child ->
 			{
 				if (consumptionPolicy == ConsumptionPolicy.CONSUME_FROM_ONE)
@@ -453,9 +465,11 @@ public final class ContainerList extends AbstractContainer
 		 * Returns the consumption policy indicating how to consume tokens from children containers.
 		 *
 		 * @return the consumption policy
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		public ConsumptionPolicy consumptionPolicy()
 		{
+			ensureOpen();
 			return consumptionPolicy;
 		}
 
@@ -465,19 +479,21 @@ public final class ContainerList extends AbstractContainer
 		 *
 		 * @param selectionPolicy determines the order in which buckets are evaluated
 		 * @return this
-		 * @throws NullPointerException if {@code selectionPolicy} is null
+		 * @throws NullPointerException  if {@code selectionPolicy} is null
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		public ConfigurationUpdater consumeFromOne(SelectionPolicy selectionPolicy)
 		{
 			requireThat(selectionPolicy, "selectionPolicy").isNotNull();
-			ConsumptionFunction consumptionFunction = CONSUME_FROM_ONE_POLICY.apply(selectionPolicy);
-			// This equality check will probably always return false but it's worth a try
-			if (this.consumptionFunction == consumptionFunction)
+			ensureOpen();
+			if (this.consumptionPolicy == ConsumptionPolicy.CONSUME_FROM_ONE &&
+				this.selectionPolicy == selectionPolicy)
+			{
 				return this;
+			}
 			changed = true;
-			ConsumptionPolicy consumptionPolicy = ConsumptionPolicy.CONSUME_FROM_ONE;
-			this.consumptionPolicy = consumptionPolicy;
-			this.consumptionFunction = consumptionFunction;
+			this.consumptionPolicy = ConsumptionPolicy.CONSUME_FROM_ONE;
+			this.consumptionFunction = CONSUME_FROM_ONE_POLICY.apply(selectionPolicy);
 			return this;
 		}
 
@@ -485,9 +501,11 @@ public final class ContainerList extends AbstractContainer
 		 * Indicates that the list should consume tokens from all children simultaneously.
 		 *
 		 * @return this
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		public ConfigurationUpdater consumeFromAll()
 		{
+			ensureOpen();
 			if (this.consumptionPolicy == ConsumptionPolicy.CONSUME_FROM_ALL)
 				return this;
 			changed = true;
@@ -500,9 +518,11 @@ public final class ContainerList extends AbstractContainer
 		 * Returns the children containers.
 		 *
 		 * @return the children containers
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		public List<Container> children()
 		{
+			ensureOpen();
 			return List.copyOf(children);
 		}
 
@@ -511,12 +531,13 @@ public final class ContainerList extends AbstractContainer
 		 *
 		 * @param bucketBuilder builds the Bucket
 		 * @return this
-		 * @throws NullPointerException if {@code bucketBuilder} is null
+		 * @throws NullPointerException  if {@code bucketBuilder} is null
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater addBucket(Consumer<Bucket.Builder> bucketBuilder)
 		{
 			requireThat(bucketBuilder, "bucketBuilder").isNotNull();
+			ensureOpen();
 			bucketBuilder.accept(new Bucket.Builder(lock, addChild::accept));
 			changed = true;
 			return this;
@@ -527,12 +548,13 @@ public final class ContainerList extends AbstractContainer
 		 *
 		 * @param listBuilder builds the ContainerList
 		 * @return this
-		 * @throws NullPointerException if {@code listBuilder} is null
+		 * @throws NullPointerException  if {@code listBuilder} is null
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater addContainerList(Consumer<Builder> listBuilder)
 		{
 			requireThat(listBuilder, "listBuilder").isNotNull();
+			ensureOpen();
 			listBuilder.accept(new Builder(lock, addChild::accept));
 			changed = true;
 			return this;
@@ -543,12 +565,13 @@ public final class ContainerList extends AbstractContainer
 		 *
 		 * @param child a child
 		 * @return this
-		 * @throws NullPointerException if {@code child} is null
+		 * @throws NullPointerException  if {@code child} is null
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater remove(Container child)
 		{
 			requireThat(child, "child").isNotNull();
+			ensureOpen();
 			if (children.remove((AbstractContainer) child))
 				changed = true;
 			return this;
@@ -558,10 +581,11 @@ public final class ContainerList extends AbstractContainer
 		 * Removes all children from this list.
 		 *
 		 * @return this
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater clear()
 		{
+			ensureOpen();
 			if (children.isEmpty())
 				return this;
 			changed = true;
@@ -573,10 +597,12 @@ public final class ContainerList extends AbstractContainer
 		 * Returns the user data associated with this list.
 		 *
 		 * @return the data associated with this list
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
 		public Object userData()
 		{
+			ensureOpen();
 			return userData;
 		}
 
@@ -585,10 +611,11 @@ public final class ContainerList extends AbstractContainer
 		 *
 		 * @param userData the data associated with this list
 		 * @return this
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater userData(Object userData)
 		{
+			ensureOpen();
 			if (Objects.equals(userData, this.userData))
 				return this;
 			changed = true;
@@ -597,24 +624,42 @@ public final class ContainerList extends AbstractContainer
 		}
 
 		/**
+		 * @throws IllegalStateException if the updater is closed
+		 */
+		private void ensureOpen()
+		{
+			if (closed)
+				throw new IllegalStateException("ConfigurationUpdater is closed");
+		}
+
+		/**
 		 * Updates this ContainerList's configuration.
 		 *
 		 * @throws IllegalArgumentException if {@code limits} is empty
 		 */
-		public void apply()
+		@Override
+		public void close()
 		{
 			requireThat(ContainerList.this.children, "children").isNotEmpty();
-			if (!changed)
+			if (closed)
 				return;
-			try (CloseableLock ignored = lock.writeLock())
+			closed = true;
+			try
 			{
+				if (!changed)
+					return;
 				ContainerList.this.children = List.copyOf(children);
 				ContainerList.this.listeners = List.copyOf(listeners);
 				ContainerList.this.consumptionPolicy = consumptionPolicy;
 				ContainerList.this.consumptionFunction = consumptionFunction;
+				ContainerList.this.selectionPolicy = selectionPolicy;
 				ContainerList.this.userData = userData;
 				if (wakeConsumers)
 					tokensUpdated.signalAll();
+			}
+			finally
+			{
+				writeLock.close();
 			}
 		}
 	}

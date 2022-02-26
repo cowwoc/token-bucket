@@ -16,7 +16,7 @@ public final class ContainerListTest
 	public void consumeFromOneRoundRobin()
 	{
 		ContainerList containerList = ContainerList.builder().
-			consumeFromOne(SelectionPolicy.roundRobin()).
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
 			addBucket(bucket ->
 				bucket.addLimit(limit ->
 						limit.initialTokens(5).
@@ -65,7 +65,7 @@ public final class ContainerListTest
 	public void consumeFromOneWhenSomeBucketsWillNeverHaveEnoughTokens()
 	{
 		ContainerList containerList = ContainerList.builder().
-			consumeFromOne(SelectionPolicy.roundRobin()).
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
 			addBucket(bucket ->
 				bucket.addLimit(limit ->
 						limit.maximumTokens(5).
@@ -108,7 +108,7 @@ public final class ContainerListTest
 	public void consumeFromOneWhenAllBucketsWillNeverHaveEnoughTokens()
 	{
 		ContainerList containerList = ContainerList.builder().
-			consumeFromOne(SelectionPolicy.roundRobin()).
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
 			addBucket(bucket ->
 				bucket.addLimit(limit ->
 						limit.maximumTokens(5).
@@ -133,7 +133,7 @@ public final class ContainerListTest
 	public void consumeFromAll()
 	{
 		ContainerList containerList = ContainerList.builder().
-			consumeFromOne(SelectionPolicy.roundRobin()).
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
 			addBucket(bucket ->
 				bucket.addLimit(limit ->
 						limit.initialTokens(5).
@@ -169,7 +169,7 @@ public final class ContainerListTest
 	public void containerOfContainersConsumeFromOne()
 	{
 		ContainerList containerList = ContainerList.builder().
-			consumeFromOne(SelectionPolicy.roundRobin()).
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
 			addContainerList(child -> child.
 				addBucket(bucket ->
 					bucket.addLimit(limit ->
@@ -306,7 +306,7 @@ public final class ContainerListTest
 	public void consumeFromOneBottleneckListIsMinimal()
 	{
 		ContainerList containerList = ContainerList.builder().
-			consumeFromOne(SelectionPolicy.roundRobin()).
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
 			addBucket(bucket ->
 				bucket.addLimit(limit ->
 						limit.period(Duration.ofMinutes(1)).
@@ -367,7 +367,7 @@ public final class ContainerListTest
 	public void bucketUpdateConfigurationRetainsOrder()
 	{
 		ContainerList containerList = ContainerList.builder().
-			consumeFromOne(SelectionPolicy.roundRobin()).
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
 			addBucket(bucket ->
 				bucket.addLimit(Builder::build).
 					userData("firstBucket").
@@ -383,10 +383,10 @@ public final class ContainerListTest
 		for (Container child : containerList.getChildren())
 		{
 			Bucket bucket = (Bucket) child;
-			Bucket.ConfigurationUpdater configurationUpdater = bucket.updateConfiguration();
-			configurationUpdater.
-				addLimit(Builder::build).
-				apply();
+			try (Bucket.ConfigurationUpdater update = bucket.updateConfiguration())
+			{
+				update.addLimit(Builder::build);
+			}
 			List<Object> newOrder = containerList.getChildren().stream().map(Container::getUserData).toList();
 			requireThat(newOrder, "newOrder").isEqualTo(oldOrder, "oldOrder");
 		}
@@ -440,10 +440,10 @@ public final class ContainerListTest
 		for (Container child : containerList.getChildren())
 		{
 			ContainerList nestedList = (ContainerList) child;
-			ContainerList.ConfigurationUpdater configurationUpdater = nestedList.updateConfiguration();
-			configurationUpdater.
-				consumeFromOne(SelectionPolicy.roundRobin()).
-				apply();
+			try (ContainerList.ConfigurationUpdater update = nestedList.updateConfiguration())
+			{
+				update.consumeFromOne(SelectionPolicy.ROUND_ROBIN);
+			}
 			List<Object> newOrder = containerList.getChildren().stream().map(Container::getUserData).toList();
 			requireThat(newOrder, "newOrder").isEqualTo(oldOrder, "oldOrder");
 		}

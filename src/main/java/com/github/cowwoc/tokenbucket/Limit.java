@@ -331,12 +331,12 @@ public final class Limit
 	/**
 	 * Updates this Limit's configuration.
 	 * <p>
-	 * Please note that users are allowed to consume tokens between the time this method is invoked and
-	 * {@link ConfigurationUpdater#apply()} completes. Users who wish to add/remove a relative amount of
-	 * tokens should avoid accessing the enclosing bucket until the configuration update is complete.
+	 * The Limit and any attached Containers will be locked until {@link ConfigurationUpdater#close()}
+	 * is invoked, at which point a new period will be started.
 	 *
 	 * @return the configuration updater
 	 */
+	@CheckReturnValue
 	public ConfigurationUpdater updateConfiguration()
 	{
 		return new ConfigurationUpdater();
@@ -375,6 +375,83 @@ public final class Limit
 				"[\n" +
 				"\t" + properties.toString().replaceAll("\n", "\n\t") + "\n" +
 				"]";
+		}
+	}
+
+	/**
+	 * The result of a simulated token consumption.
+	 */
+	@SuppressWarnings("ClassCanBeRecord")
+	static final class ConsumptionSimulation
+	{
+		private final long tokensConsumed;
+		private final Instant requestedAt;
+		private final Instant availableAt;
+
+		/**
+		 * Creates the result of a simulated token consumption.
+		 *
+		 * @param tokensConsumed the number of tokens that would be consumed
+		 * @param requestedAt    the time at which the tokens were requested
+		 * @param availableAt    the time at which the tokens will become available
+		 * @throws NullPointerException     if any of the arguments are null
+		 * @throws IllegalArgumentException if {@code tokensConsumed} is negative
+		 */
+		ConsumptionSimulation(long tokensConsumed, Instant requestedAt, Instant availableAt)
+		{
+			assertThat(tokensConsumed, "tokensConsumed").isNotNegative();
+			assertThat(requestedAt, "requestedAt").isNotNull();
+			assertThat(availableAt, "availableAt").isNotNull();
+			this.tokensConsumed = tokensConsumed;
+			this.requestedAt = requestedAt;
+			this.availableAt = availableAt;
+		}
+
+		/**
+		 * Returns true if the bucket was able to consume any tokens.
+		 *
+		 * @return true if the bucket was able to consume any tokens
+		 */
+		public boolean isSuccessful()
+		{
+			return tokensConsumed >= 0;
+		}
+
+		/**
+		 * Returns the number of tokens that were consumed by the request.
+		 *
+		 * @return the number of tokens that were consumed by the request
+		 */
+		public long getTokensConsumed()
+		{
+			return tokensConsumed;
+		}
+
+		/**
+		 * Indicates when the requested number of tokens will become available.
+		 *
+		 * @return the time when the requested number of tokens will become available
+		 */
+		public Instant getAvailableAt()
+		{
+			return availableAt;
+		}
+
+		/**
+		 * Returns the amount of time until the requested number of tokens will become available.
+		 *
+		 * @return the amount of time until the requested number of tokens will become available
+		 */
+		public Duration getAvailableIn()
+		{
+			return Duration.between(requestedAt, availableAt);
+		}
+
+		@Override
+		public String toString()
+		{
+			return "successful: " + isSuccessful() + ", tokensConsumed: " + tokensConsumed + ", requestedAt: " +
+				requestedAt + ", availableAt: " + availableAt;
 		}
 	}
 
@@ -600,17 +677,16 @@ public final class Limit
 	 * <p>
 	 * <b>Thread-safety</b>: This class is not thread-safe.
 	 */
-	public final class ConfigurationUpdater
+	public final class ConfigurationUpdater implements AutoCloseable
 	{
+		private final CloseableLock writeLock = lock.writeLock();
+		private boolean closed;
 		private long tokensPerPeriod;
 		private Duration period;
 		private long maximumTokens;
 		private long refillSize;
 		private Object userData;
-		private Instant lastRefilledAt;
 		private long availableTokens;
-		private Instant startOfCurrentPeriod;
-		private long tokensAddedInCurrentPeriod;
 		private boolean changed;
 
 		/**
@@ -618,28 +694,24 @@ public final class Limit
 		 */
 		private ConfigurationUpdater()
 		{
-			try (CloseableLock ignored = lock.readLock())
-			{
-				this.userData = Limit.this.userData;
-				this.tokensPerPeriod = Limit.this.tokensPerPeriod;
-				this.period = Limit.this.period;
-				this.maximumTokens = Limit.this.maximumTokens;
-				this.refillSize = Limit.this.refillSize;
-				this.lastRefilledAt = Limit.this.lastRefilledAt;
-				this.availableTokens = Limit.this.availableTokens;
-				this.startOfCurrentPeriod = Limit.this.startOfCurrentPeriod;
-				this.tokensAddedInCurrentPeriod = Limit.this.tokensAddedInCurrentPeriod;
-			}
+			this.userData = Limit.this.userData;
+			this.tokensPerPeriod = Limit.this.tokensPerPeriod;
+			this.period = Limit.this.period;
+			this.maximumTokens = Limit.this.maximumTokens;
+			this.refillSize = Limit.this.refillSize;
+			this.availableTokens = Limit.this.availableTokens;
 		}
 
 		/**
 		 * Returns the amount of tokens to add to the bucket every {@code period}.
 		 *
 		 * @return the amount of tokens to add to the bucket every {@code period}
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
 		public long tokensPerPeriod()
 		{
+			ensureOpen();
 			return tokensPerPeriod;
 		}
 
@@ -648,11 +720,13 @@ public final class Limit
 		 *
 		 * @param tokensPerPeriod the amount of tokens to add to the bucket every {@code period}
 		 * @return this
+		 * @throws IllegalArgumentException if {@code tokensPerPeriod} is negative or zero
+		 * @throws IllegalStateException    if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater tokensPerPeriod(long tokensPerPeriod)
 		{
 			requireThat(tokensPerPeriod, "tokensPerPeriod").isPositive();
+			ensureOpen();
 			if (tokensPerPeriod == this.tokensPerPeriod)
 				return this;
 			this.changed = true;
@@ -664,10 +738,12 @@ public final class Limit
 		 * Indicates how often {@code tokensPerPeriod} should be added to the bucket.
 		 *
 		 * @return how often {@code tokensPerPeriod} should be added to the bucket
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
 		public Duration period()
 		{
+			ensureOpen();
 			return period;
 		}
 
@@ -676,12 +752,13 @@ public final class Limit
 		 *
 		 * @param period indicates how often {@code tokensPerPeriod} should be added to the bucket
 		 * @return this
-		 * @throws NullPointerException if {@code period} is null
+		 * @throws NullPointerException  if {@code period} is null
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater period(Duration period)
 		{
 			requireThat(period, "period").isGreaterThan(Duration.ZERO);
+			ensureOpen();
 			if (period.equals(this.period))
 				return this;
 			changed = true;
@@ -694,10 +771,12 @@ public final class Limit
 		 *
 		 * @return the maximum amount of tokens that the bucket may hold before overflowing (subsequent tokens
 		 * are discarded)
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
 		public long maximumTokens()
 		{
+			ensureOpen();
 			return maximumTokens;
 		}
 
@@ -708,11 +787,12 @@ public final class Limit
 		 *                      (subsequent tokens are discarded)
 		 * @return this
 		 * @throws IllegalArgumentException if {@code maximumTokens} is negative or zero
+		 * @throws IllegalStateException    if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater maximumTokens(long maximumTokens)
 		{
 			requireThat(maximumTokens, "maximumTokens").isPositive();
+			ensureOpen();
 			if (maximumTokens == this.maximumTokens)
 				return this;
 			changed = true;
@@ -730,10 +810,12 @@ public final class Limit
 		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
 		 *
 		 * @return the minimum number of tokens by which the limit may be refilled
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
 		public long refillSize()
 		{
+			ensureOpen();
 			return refillSize;
 		}
 
@@ -749,11 +831,12 @@ public final class Limit
 		 * @param refillSize the minimum number of tokens by which the limit may be refilled
 		 * @return this
 		 * @throws IllegalArgumentException if {@code refillSize} is negative or zero
+		 * @throws IllegalStateException    if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater refillSize(long refillSize)
 		{
 			requireThat(refillSize, "refillSize").isPositive();
+			ensureOpen();
 			if (refillSize == this.refillSize)
 				return this;
 			changed = true;
@@ -762,43 +845,16 @@ public final class Limit
 		}
 
 		/**
-		 * Returns the last time that this Limit was refilled.
-		 *
-		 * @return the last time that this Limit was refilled
-		 */
-		@CheckReturnValue
-		public Instant lastRefilledAt()
-		{
-			return lastRefilledAt;
-		}
-
-		/**
-		 * Sets the last time that this Limit was refilled.
-		 *
-		 * @param lastRefilledAt the last time that this Limit was refilled
-		 * @return this
-		 * @throws NullPointerException if {@code lastRefilledAt} is null
-		 */
-		@CheckReturnValue
-		public ConfigurationUpdater lastRefilledAt(Instant lastRefilledAt)
-		{
-			requireThat(lastRefilledAt, "lastRefilledAt").isNotNull();
-			if (lastRefilledAt.equals(this.lastRefilledAt))
-				return this;
-			changed = true;
-			this.lastRefilledAt = lastRefilledAt;
-			return this;
-		}
-
-		/**
 		 * Returns the number of available tokens. The value may be negative, in which case the bucket must
 		 * accumulate a positive number of tokens before they may be consumed.
 		 *
 		 * @return the number of available tokens
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
 		public long availableTokens()
 		{
+			ensureOpen();
 			return availableTokens;
 		}
 
@@ -808,10 +864,11 @@ public final class Limit
 		 *
 		 * @param availableTokens the number of available tokens
 		 * @return this
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater availableTokens(long availableTokens)
 		{
+			ensureOpen();
 			if (availableTokens == this.availableTokens)
 				return this;
 			changed = true;
@@ -820,99 +877,15 @@ public final class Limit
 		}
 
 		/**
-		 * Indicates when the most recent period has started.
-		 * <p>
-		 * Possible values include:
-		 * <ul>
-		 *   <li>{@code unchanged} to start {@code tokensPerPeriod} relative to the old configuration's period.</li>
-		 *   <li>{@code lastRefilledAt} to start a new period immediately.</li>
-		 * </ul>
-		 *
-		 * @return the time that the current period has started
-		 */
-		@CheckReturnValue
-		public Instant startOfCurrentPeriod()
-		{
-			return startOfCurrentPeriod;
-		}
-
-		/**
-		 * Indicates when the most recent period has started.
-		 * <p>
-		 * Possible values include:
-		 * <ul>
-		 *    <li>{@code unchanged} to start {@code tokensPerPeriod} relative to the old configuration's period
-		 *    .</li>
-		 *   <li>{@code lastRefilledAt} to start a new period immediately.</li>
-		 * </ul>
-		 *
-		 * @param startOfCurrentPeriod the time that the current period has started
-		 * @return this
-		 * @throws NullPointerException if {@code startOfCurrentPeriod} is null
-		 */
-		@CheckReturnValue
-		public ConfigurationUpdater startOfCurrentPeriod(Instant startOfCurrentPeriod)
-		{
-			requireThat(startOfCurrentPeriod, "startOfCurrentPeriod").isNotNull();
-			if (startOfCurrentPeriod.equals(this.startOfCurrentPeriod))
-				return this;
-			changed = true;
-			this.startOfCurrentPeriod = startOfCurrentPeriod;
-			return this;
-		}
-
-		/**
-		 * Returns the number of tokens that were added since {@code startOfCurrentPeriod}.
-		 * <p>
-		 * Possible values include:
-		 * <ul>
-		 *   <li>{@code unchanged} to start {@code tokensPerPeriod} relative to the old configuration's period.
-		 *   </li>
-		 *   <li>{@code 0} to start a new period immediately.</li>
-		 * </ul>
-		 *
-		 * @return the number of tokens that were added since {@code startOfCurrentPeriod}
-		 */
-		@CheckReturnValue
-		public long tokensAddedInCurrentPeriod()
-		{
-			return tokensAddedInCurrentPeriod;
-		}
-
-		/**
-		 * Sets the number of tokens that were added since {@code startOfCurrentPeriod}.
-		 * <p>
-		 * Possible values include:
-		 * <ul>
-		 *   <li>{@code unchanged} to start {@code tokensPerPeriod} relative to the old configuration's period.
-		 *   </li>
-		 *   <li>{@code 0} to start a new period immediately.</li>
-		 * </ul>
-		 *
-		 * @param tokensAddedInCurrentPeriod the number of tokens that were added since
-		 *                                   {@code startOfCurrentPeriod}
-		 * @return this
-		 * @throws IllegalArgumentException if {@code tokensAddedInCurrentPeriod} is negative
-		 */
-		@CheckReturnValue
-		public ConfigurationUpdater tokensAddedInCurrentPeriod(int tokensAddedInCurrentPeriod)
-		{
-			requireThat(tokensAddedInCurrentPeriod, "tokensAddedInCurrentPeriod").isNotNegative();
-			if (tokensAddedInCurrentPeriod == this.tokensAddedInCurrentPeriod)
-				return this;
-			changed = true;
-			this.tokensAddedInCurrentPeriod = tokensAddedInCurrentPeriod;
-			return this;
-		}
-
-		/**
 		 * Returns the data associated with this limit.
 		 *
 		 * @return the data associated with this limit
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
 		public Object userData()
 		{
+			ensureOpen();
 			return userData;
 		}
 
@@ -921,10 +894,11 @@ public final class Limit
 		 *
 		 * @param userData the data associated with this limit
 		 * @return this
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater userData(Object userData)
 		{
+			ensureOpen();
 			if (Objects.equals(userData, this.userData))
 				return this;
 			changed = true;
@@ -933,106 +907,50 @@ public final class Limit
 		}
 
 		/**
-		 * Updates this Limit's configuration.
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		public void apply()
+		private void ensureOpen()
 		{
-			if (!changed)
+			if (closed)
+				throw new IllegalStateException("ConfigurationUpdater is closed");
+		}
+
+		/**
+		 * Updates this Limit's configuration and releases its lock.
+		 * <p>
+		 * A new period is started immediately after the update takes place.
+		 */
+		@Override
+		public void close()
+		{
+			if (closed)
 				return;
-			try (CloseableLock ignored = lock.writeLock())
+			closed = true;
+			try
 			{
+				if (!changed)
+					return;
 				log.debug("Before updating limit: {}", Limit.this);
 				Limit.this.tokensPerPeriod = tokensPerPeriod;
 				Limit.this.period = period;
 				Limit.this.maximumTokens = maximumTokens;
 				Limit.this.refillSize = refillSize;
-				Limit.this.lastRefilledAt = lastRefilledAt;
 				Limit.this.userData = userData;
 
 				// Overflow the bucket if necessary
 				Limit.this.availableTokens = Math.min(maximumTokens, availableTokens);
 
-				Limit.this.startOfCurrentPeriod = startOfCurrentPeriod;
-				Limit.this.tokensAddedInCurrentPeriod = tokensAddedInCurrentPeriod;
+				// Updating the configuration starts a new period
+				Instant now = Instant.now();
+				Limit.this.startOfCurrentPeriod = now;
+				Limit.this.lastRefilledAt = now;
+				Limit.this.tokensAddedInCurrentPeriod = 0;
 				log.debug("After updating limit: {}", Limit.this);
 			}
-		}
-	}
-
-	/**
-	 * The result of a simulated token consumption.
-	 */
-	@SuppressWarnings("ClassCanBeRecord")
-	static final class ConsumptionSimulation
-	{
-		private final long tokensConsumed;
-		private final Instant requestedAt;
-		private final Instant availableAt;
-
-		/**
-		 * Creates the result of a simulated token consumption.
-		 *
-		 * @param tokensConsumed the number of tokens that would be consumed
-		 * @param requestedAt    the time at which the tokens were requested
-		 * @param availableAt    the time at which the tokens will become available
-		 * @throws NullPointerException     if any of the arguments are null
-		 * @throws IllegalArgumentException if {@code tokensConsumed} is negative
-		 */
-		ConsumptionSimulation(long tokensConsumed, Instant requestedAt, Instant availableAt)
-		{
-			assertThat(tokensConsumed, "tokensConsumed").isNotNegative();
-			assertThat(requestedAt, "requestedAt").isNotNull();
-			assertThat(availableAt, "availableAt").isNotNull();
-			this.tokensConsumed = tokensConsumed;
-			this.requestedAt = requestedAt;
-			this.availableAt = availableAt;
-		}
-
-		/**
-		 * Returns true if the bucket was able to consume any tokens.
-		 *
-		 * @return true if the bucket was able to consume any tokens
-		 */
-		public boolean isSuccessful()
-		{
-			return tokensConsumed >= 0;
-		}
-
-		/**
-		 * Returns the number of tokens that were consumed by the request.
-		 *
-		 * @return the number of tokens that were consumed by the request
-		 */
-		public long getTokensConsumed()
-		{
-			return tokensConsumed;
-		}
-
-		/**
-		 * Indicates when the requested number of tokens will become available.
-		 *
-		 * @return the time when the requested number of tokens will become available
-		 */
-		public Instant getAvailableAt()
-		{
-			return availableAt;
-		}
-
-		/**
-		 * Returns the amount of time until the requested number of tokens will become available.
-		 *
-		 * @return the amount of time until the requested number of tokens will become available
-		 */
-		public Duration getAvailableIn()
-		{
-			return Duration.between(requestedAt, availableAt);
-		}
-
-		@Override
-		public String toString()
-		{
-			return "successful: " + isSuccessful() + ", tokensConsumed: " + tokensConsumed + ", requestedAt: " +
-				requestedAt + ", availableAt: " + availableAt;
+			finally
+			{
+				writeLock.close();
+			}
 		}
 	}
 }
