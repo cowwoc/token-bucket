@@ -8,6 +8,10 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
         * `Builder`/`ConfigurationUpdater.getLimits()` returns a List instead of a Set.
     * ConsumptionResult
         * Renamed `bottleneck` to `bottlenecks`.
+    * Renamed `SelectionPolicy.roundRobin()` to `SelectionPolicy.ROUND_ROBIN`.
+    * `Limit/Bucket/ContainerList.updateConfiguration()` now holds a lock until the update is applied.
+    * Removed `Limit.ConfigurationUpdater.lastRefilledAt/startOfCurrentPeriod/tokensAddedInCurrentPeriod`.
+    * Updating a Limit starts a new period.
 
 * New features
     * Added `ContainerListener` used to listen to Container events.

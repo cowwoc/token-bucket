@@ -32,7 +32,7 @@ public final class BucketTest
 	public void requireAtLeastOneBucket()
 	{
 		ContainerList.builder().
-			consumeFromOne(SelectionPolicy.roundRobin()).
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
 			build();
 	}
 
@@ -122,7 +122,10 @@ public final class BucketTest
 		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
 			isEqualTo(Duration.ZERO);
 
-		limit.updateConfiguration().availableTokens(-100).apply();
+		try (ConfigurationUpdater update = limit.updateConfiguration())
+		{
+			update.availableTokens(-100);
+		}
 		requireThat(limit.availableTokens, "limit.getAvailableTokens()").isNegative();
 		consumptionResult = bucket.tryConsume();
 		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
@@ -230,17 +233,17 @@ public final class BucketTest
 
 		Limit limit = bucket.getLimits().iterator().next();
 		limit.lastRefilledAt = Instant.now();
-		Instant requestAt = limit.lastRefilledAt;
 		Duration ONE_SECOND = Duration.ofSeconds(1);
 		long expectedTokens = 0;
 		for (int i = 1; i <= 10; ++i)
 		{
-			requestAt = requestAt.plus(ONE_SECOND);
+			Instant requestAt = limit.startOfCurrentPeriod.plus(ONE_SECOND);
 			limit.refill(requestAt);
 			expectedTokens += i;
-			limit.updateConfiguration().
-				tokensPerPeriod(i + 1).
-				apply();
+			try (ConfigurationUpdater update = limit.updateConfiguration())
+			{
+				update.tokensPerPeriod(i + 1);
+			}
 			requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(expectedTokens);
 		}
 	}
@@ -266,10 +269,10 @@ public final class BucketTest
 		List<Object> oldOrder = new ArrayList<>(bucket.getLimits().stream().map(Limit::getUserData).toList());
 		for (Limit limit : bucket.getLimits())
 		{
-			ConfigurationUpdater configurationUpdater = limit.updateConfiguration();
-			configurationUpdater.
-				tokensPerPeriod(configurationUpdater.tokensPerPeriod() + 1).
-				apply();
+			try (ConfigurationUpdater update = limit.updateConfiguration())
+			{
+				update.tokensPerPeriod(update.tokensPerPeriod() + 1);
+			}
 			List<Object> newOrder = bucket.getLimits().stream().map(Limit::getUserData).toList();
 			requireThat(newOrder, "newOrder").isEqualTo(oldOrder, "oldOrder");
 		}

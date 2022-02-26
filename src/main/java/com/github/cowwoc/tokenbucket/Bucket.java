@@ -208,12 +208,12 @@ public final class Bucket extends AbstractContainer
 	/**
 	 * Updates this Bucket's configuration.
 	 * <p>
-	 * Please note that users are allowed to consume tokens between the time this method is invoked and
-	 * {@link ConfigurationUpdater#apply()} completes. Users who wish to add/remove a relative amount of
-	 * tokens should avoid accessing the bucket or its limits until the configuration update is complete.
+	 * The Bucket and any attached Limits, Containers will be locked until
+	 * {@link ConfigurationUpdater#close()} is invoked.
 	 *
 	 * @return the configuration updater
 	 */
+	@CheckReturnValue
 	public ConfigurationUpdater updateConfiguration()
 	{
 		return new ConfigurationUpdater();
@@ -437,8 +437,10 @@ public final class Bucket extends AbstractContainer
 	 * <p>
 	 * <b>Thread-safety</b>: This class is not thread-safe.
 	 */
-	public final class ConfigurationUpdater
+	public final class ConfigurationUpdater implements AutoCloseable
 	{
+		private final CloseableLock writeLock = lock.writeLock();
+		private boolean closed;
 		private final List<Limit> limits;
 		private final List<ContainerListener> listeners;
 		private Object userData;
@@ -450,22 +452,21 @@ public final class Bucket extends AbstractContainer
 		 */
 		ConfigurationUpdater()
 		{
-			try (CloseableLock ignored = lock.readLock())
-			{
-				this.limits = new ArrayList<>(Bucket.this.limits);
-				this.listeners = new ArrayList<>(Bucket.this.listeners);
-				this.userData = Bucket.this.userData;
-			}
+			this.limits = new ArrayList<>(Bucket.this.limits);
+			this.listeners = new ArrayList<>(Bucket.this.listeners);
+			this.userData = Bucket.this.userData;
 		}
 
 		/**
 		 * Returns the limits that the bucket must respect.
 		 *
 		 * @return the limits that the bucket must respect
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
 		public List<Limit> limits()
 		{
+			ensureOpen();
 			return limits;
 		}
 
@@ -474,12 +475,13 @@ public final class Bucket extends AbstractContainer
 		 *
 		 * @param limitBuilder builds a Limit
 		 * @return this
-		 * @throws NullPointerException if {@code limit} is null
+		 * @throws NullPointerException  if {@code limit} is null
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater addLimit(Consumer<Limit.Builder> limitBuilder)
 		{
 			requireThat(limitBuilder, "limitBuilder").isNotNull();
+			ensureOpen();
 			// Adding a limit causes consumers to have to wait the same amount of time, or longer. No need to
 			// wake sleeping consumers.
 			limitBuilder.accept(new Limit.Builder(e ->
@@ -495,12 +497,13 @@ public final class Bucket extends AbstractContainer
 		 *
 		 * @param limit a limit
 		 * @return this
-		 * @throws NullPointerException if {@code limit} is null
+		 * @throws NullPointerException  if {@code limit} is null
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater removeLimit(Limit limit)
 		{
 			requireThat(limit, "limit").isNotNull();
+			ensureOpen();
 			if (limits.remove(limit))
 			{
 				changed = true;
@@ -513,10 +516,11 @@ public final class Bucket extends AbstractContainer
 		 * Removes all limits.
 		 *
 		 * @return this
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater clear()
 		{
+			ensureOpen();
 			if (limits.isEmpty())
 				return this;
 			changed = true;
@@ -529,11 +533,13 @@ public final class Bucket extends AbstractContainer
 		 *
 		 * @param listener a listener
 		 * @return this
-		 * @throws NullPointerException if {@code listener} is null
+		 * @throws NullPointerException  if {@code listener} is null
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		public ConfigurationUpdater addListener(ContainerListener listener)
 		{
 			requireThat(listener, "listener").isNotNull();
+			ensureOpen();
 			changed = true;
 			listeners.add(listener);
 			return this;
@@ -544,11 +550,13 @@ public final class Bucket extends AbstractContainer
 		 *
 		 * @param listener a listener
 		 * @return this
-		 * @throws NullPointerException if {@code listener} is null
+		 * @throws NullPointerException  if {@code listener} is null
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		public ConfigurationUpdater removeListener(ContainerListener listener)
 		{
 			requireThat(listener, "listener").isNotNull();
+			ensureOpen();
 			if (listeners.remove(listener))
 				changed = true;
 			return this;
@@ -558,10 +566,12 @@ public final class Bucket extends AbstractContainer
 		 * Returns the user data associated with this bucket.
 		 *
 		 * @return the data associated with this bucket
+		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
 		public Object userData()
 		{
+			ensureOpen();
 			return userData;
 		}
 
@@ -570,10 +580,11 @@ public final class Bucket extends AbstractContainer
 		 *
 		 * @param userData the data associated with this bucket
 		 * @return this
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		@CheckReturnValue
 		public ConfigurationUpdater userData(Object userData)
 		{
+			ensureOpen();
 			if (Objects.equals(userData, this.userData))
 				return this;
 			changed = true;
@@ -582,22 +593,39 @@ public final class Bucket extends AbstractContainer
 		}
 
 		/**
+		 * @throws IllegalStateException if the updater is closed
+		 */
+		private void ensureOpen()
+		{
+			if (closed)
+				throw new IllegalStateException("ConfigurationUpdater is closed");
+		}
+
+		/**
 		 * Updates this Bucket's configuration.
 		 *
 		 * @throws IllegalArgumentException if {@code limits} is empty
 		 */
-		public void apply()
+		@Override
+		public void close()
 		{
 			requireThat(limits, "limits").isNotEmpty();
-			if (!changed)
+			if (closed)
 				return;
-			try (CloseableLock ignored = lock.writeLock())
+			closed = true;
+			try
 			{
+				if (!changed)
+					return;
 				Bucket.this.limits = List.copyOf(limits);
 				Bucket.this.listeners = List.copyOf(listeners);
 				Bucket.this.userData = userData;
 				if (wakeConsumers)
 					tokensUpdated.signalAll();
+			}
+			finally
+			{
+				writeLock.close();
 			}
 		}
 	}
