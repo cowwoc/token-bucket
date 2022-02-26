@@ -1,7 +1,7 @@
 Minor updates involving cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
-## Version 4.0 - 2022/02/25
+## Version 4.0 - 2022/02/26
 
 * Breaking changes:
     * Bucket
@@ -24,7 +24,7 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 * Bugfixes
     * `Limit.refill()` calculation error caused tokensAddedInCurrentPeriod to surpass tokensPerPeriod.
     * `Limit/Bucket/ContainerList.updateConfiguration()` no longer updates the bucket's position in the
-      parent's list
+      parent's list.
 
 ## Version 3.0 - 2022/02/24
 
