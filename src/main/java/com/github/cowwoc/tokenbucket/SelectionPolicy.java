@@ -11,6 +11,11 @@ import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
  */
 public enum SelectionPolicy
 {
+	/**
+	 * A scheduler that selects the next bucket in a round-robin fashion.
+	 *
+	 * @see <a href="https://en.wikipedia.org/wiki/Round-robin_scheduling">Round robin scheduling</a>
+	 */
 	ROUND_ROBIN
 		{
 			private int index = 0;
