@@ -55,7 +55,6 @@ public final class BucketTest
 			addLimit(limit ->
 				limit.tokensPerPeriod(tokens).
 					period(Duration.ofSeconds(seconds)).
-					refillSize(1).
 					build()).
 			build();
 
@@ -90,9 +89,6 @@ public final class BucketTest
 		Bucket bucket = Bucket.builder().
 			addLimit(limit ->
 				limit.initialTokens(-100).
-					tokensPerPeriod(1).
-					period(Duration.ofSeconds(1)).
-					refillSize(1).
 					build()).
 			build();
 
@@ -110,9 +106,6 @@ public final class BucketTest
 		Bucket bucket = Bucket.builder().
 			addLimit(limit ->
 				limit.initialTokens(1).
-					tokensPerPeriod(1).
-					period(Duration.ofSeconds(1)).
-					refillSize(1).
 					build()).
 			build();
 
@@ -138,15 +131,9 @@ public final class BucketTest
 		Bucket bucket = Bucket.builder().
 			addLimit(limit ->
 				limit.initialTokens(10).
-					tokensPerPeriod(1).
-					period(Duration.ofSeconds(1)).
-					refillSize(1).
 					build()).
 			addLimit(limit ->
 				limit.initialTokens(100).
-					tokensPerPeriod(1).
-					period(Duration.ofSeconds(1)).
-					refillSize(1).
 					build()).
 			build();
 
@@ -204,15 +191,11 @@ public final class BucketTest
 	{
 		Bucket bucket = Bucket.builder().
 			addLimit(limit ->
-				limit.tokensPerPeriod(1).
+				limit.userData("first").
 					period(Duration.ofMinutes(1)).
-					refillSize(1).
-					userData("first").
 					build()).
 			addLimit(limit ->
-				limit.tokensPerPeriod(1).
-					period(Duration.ofMinutes(10)).
-					refillSize(1).
+				limit.period(Duration.ofMinutes(10)).
 					userData("second").
 					build()).
 			build();
@@ -253,15 +236,11 @@ public final class BucketTest
 	{
 		Bucket bucket = Bucket.builder().
 			addLimit(limit ->
-				limit.tokensPerPeriod(1).
-					period(Duration.ofMinutes(1)).
-					refillSize(1).
+				limit.period(Duration.ofMinutes(1)).
 					userData("first").
 					build()).
 			addLimit(limit ->
-				limit.tokensPerPeriod(1).
-					period(Duration.ofMinutes(10)).
-					refillSize(1).
+				limit.period(Duration.ofMinutes(10)).
 					userData("second").
 					build()).
 			build();
@@ -276,5 +255,27 @@ public final class BucketTest
 			List<Object> newOrder = bucket.getLimits().stream().map(Limit::getUserData).toList();
 			requireThat(newOrder, "newOrder").isEqualTo(oldOrder, "oldOrder");
 		}
+	}
+
+	@Test
+	public void limitWithLowestRefillRate()
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit ->
+				limit.period(Duration.ofMinutes(1)).
+					userData("first").
+					build()).
+			addLimit(limit ->
+				limit.period(Duration.ofMinutes(100)).
+					userData("second").
+					build()).
+			addLimit(limit ->
+				limit.period(Duration.ofMinutes(50)).
+					userData("third").
+					build()).
+			build();
+
+		Limit lowestRefillRate = bucket.getLimitWithLowestRefillRate();
+		requireThat(lowestRefillRate.getUserData(), "lowestRefillRate.getUserData()").isEqualTo("second");
 	}
 }

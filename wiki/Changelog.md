@@ -12,9 +12,11 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
     * `Limit/Bucket/ContainerList.updateConfiguration()` now holds a lock until the update is applied.
     * Removed `Limit.ConfigurationUpdater.lastRefilledAt/startOfCurrentPeriod/tokensAddedInCurrentPeriod`.
     * Updating a Limit starts a new period.
+    * Removed `Bucket.addTokens()` (waiting for someone to bring up a justifying use-case).
 
 * New features
     * Added `ContainerListener` used to listen to Container events.
+    * Added `Bucket.getLimitWithLowestRefillRate()`.
 
 * Improvements
     * `ContainerList/Bucket/Limit.toString()` now shows properties on different lines.
