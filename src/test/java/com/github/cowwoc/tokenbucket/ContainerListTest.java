@@ -448,4 +448,57 @@ public final class ContainerListTest
 			requireThat(newOrder, "newOrder").isEqualTo(oldOrder, "oldOrder");
 		}
 	}
+
+	@Test
+	public void separateRoundRobinInstances() throws InterruptedException
+	{
+		// Containers that used the same SelectionPolicy would corrupt each other's state. Each container should
+		// use a separate instance.
+		ContainerList containerList = ContainerList.builder().
+			addContainerList(child -> child.
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(10).
+								userData("limit1").
+								build()).
+						userData("bucket1").
+						build()).
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(10).
+								userData("limit1").
+								build()).
+						userData("bucket2").
+						build()).
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(10).
+								userData("limit1").
+								build()).
+						userData("bucket3").
+						build()).
+				consumeFromOne(SelectionPolicy.ROUND_ROBIN).
+				userData("list1").
+				build()).
+			addContainerList(child -> child.
+				addBucket(bucket ->
+					bucket.addLimit(limit ->
+							limit.initialTokens(10).
+								userData("limit1").
+								build()).
+						userData("bucket1").
+						build()).
+				consumeFromOne(SelectionPolicy.ROUND_ROBIN).
+				userData("list2").
+				build()).
+			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
+			build();
+
+		// index = 0
+		ConsumptionResult ignored = containerList.consume();
+		// index = 1
+		ignored = containerList.consume();
+		// index = 2
+		ignored = containerList.consume();
+	}
 }

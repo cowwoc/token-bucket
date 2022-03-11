@@ -1,6 +1,7 @@
 package com.github.cowwoc.tokenbucket;
 
 import com.github.cowwoc.tokenbucket.internal.AbstractContainer;
+import com.github.cowwoc.tokenbucket.internal.ContainerSelector;
 
 import java.util.List;
 
@@ -18,26 +19,27 @@ public enum SelectionPolicy
 	 */
 	ROUND_ROBIN
 		{
-			private int index = 0;
-
 			@Override
-			AbstractContainer nextContainer(List<AbstractContainer> containers)
+			ContainerSelector createSelector()
 			{
-				assertThat(containers, "containers").isNotEmpty();
-				AbstractContainer bucket = containers.get(index);
-				// Wrap around end of list
-				index = (index + 1) % containers.size();
-				return bucket;
+				return new ContainerSelector()
+				{
+					private int index = -1;
+
+					@Override
+					public AbstractContainer nextContainer(List<AbstractContainer> containers)
+					{
+						assertThat(containers, "containers").isNotEmpty();
+						// Wrap around end of list
+						index = (index + 1) % containers.size();
+						return containers.get(index);
+					}
+				};
 			}
 		};
 
 	/**
-	 * Selects the next container to perform a task.
-	 *
-	 * @param containers a list of container
-	 * @return the next container to perform a task
-	 * @throws NullPointerException     if {@code containers} is null
-	 * @throws IllegalArgumentException if {@code containers} is empty
+	 * @return a new {@code ContainerSelector} that implements this policy
 	 */
-	abstract AbstractContainer nextContainer(List<AbstractContainer> containers);
+	abstract ContainerSelector createSelector();
 }

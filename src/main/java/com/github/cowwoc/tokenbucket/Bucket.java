@@ -4,9 +4,7 @@ import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.Limit.ConsumptionSimulation;
 import com.github.cowwoc.tokenbucket.internal.AbstractContainer;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
-import com.github.cowwoc.tokenbucket.internal.ContainerSecrets;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
-import com.github.cowwoc.tokenbucket.internal.SharedSecrets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +28,6 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
  */
 public final class Bucket extends AbstractContainer
 {
-	private static final ContainerSecrets CONTAINER_SECRETS = SharedSecrets.INSTANCE.containerSecrets;
 	private final Logger log = LoggerFactory.getLogger(Bucket.class);
 	private List<Limit> limits;
 
@@ -47,7 +44,7 @@ public final class Bucket extends AbstractContainer
 	}
 
 	/**
-	 * Creates a child bucket.
+	 * Creates a new bucket.
 	 *
 	 * @param lock      the lock over the bucket's state
 	 * @param listeners the event listeners associated with this bucket
