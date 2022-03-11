@@ -164,12 +164,13 @@ public final class Bucket extends AbstractContainer
 			limit.refill(consumedAt);
 		}
 		long tokensConsumed = Long.MAX_VALUE;
-		ConsumptionSimulation longestDelay = new ConsumptionSimulation(tokensConsumed, requestedAt, requestedAt);
+		ConsumptionSimulation longestDelay = new ConsumptionSimulation(tokensConsumed, requestedAt, consumedAt);
 		Comparator<Duration> comparator = Comparator.naturalOrder();
 		Limit bottleneck = null;
 		for (Limit limit : limits)
 		{
-			ConsumptionSimulation newConsumption = limit.simulateConsumption(minimumTokens, maximumTokens, consumedAt);
+			ConsumptionSimulation newConsumption = limit.simulateConsumption(minimumTokens, maximumTokens,
+				consumedAt);
 			tokensConsumed = Math.min(tokensConsumed, newConsumption.getTokensConsumed());
 			if (comparator.compare(newConsumption.getAvailableIn(), longestDelay.getAvailableIn()) > 0)
 			{
