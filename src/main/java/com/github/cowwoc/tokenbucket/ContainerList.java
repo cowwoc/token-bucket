@@ -5,6 +5,7 @@ import com.github.cowwoc.tokenbucket.internal.AbstractContainer;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
 import com.github.cowwoc.tokenbucket.internal.ConsumptionFunction;
 import com.github.cowwoc.tokenbucket.internal.ContainerSecrets;
+import com.github.cowwoc.tokenbucket.internal.ContainerSelector;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
 import com.github.cowwoc.tokenbucket.internal.SharedSecrets;
 import org.slf4j.Logger;
@@ -28,7 +29,7 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 public final class ContainerList extends AbstractContainer
 {
 	private static final ContainerSecrets CONTAINER_SECRETS = SharedSecrets.INSTANCE.containerSecrets;
-	private static final Function<SelectionPolicy, ConsumptionFunction> CONSUME_FROM_ONE_POLICY =
+	private static final Function<ContainerSelector, ConsumptionFunction> CONSUME_FROM_ONE_POLICY =
 		selectionPolicy ->
 			(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, abstractBucket) ->
 			{
@@ -297,7 +298,7 @@ public final class ContainerList extends AbstractContainer
 		{
 			requireThat(selectionPolicy, "selectionPolicy").isNotNull();
 			this.consumptionPolicy = ConsumptionPolicy.CONSUME_FROM_ONE;
-			this.consumptionFunction = CONSUME_FROM_ONE_POLICY.apply(selectionPolicy);
+			this.consumptionFunction = CONSUME_FROM_ONE_POLICY.apply(selectionPolicy.createSelector());
 			this.selectionPolicy = selectionPolicy;
 			return this;
 		}
@@ -493,7 +494,8 @@ public final class ContainerList extends AbstractContainer
 			}
 			changed = true;
 			this.consumptionPolicy = ConsumptionPolicy.CONSUME_FROM_ONE;
-			this.consumptionFunction = CONSUME_FROM_ONE_POLICY.apply(selectionPolicy);
+			this.consumptionFunction = CONSUME_FROM_ONE_POLICY.apply(selectionPolicy.createSelector());
+			this.selectionPolicy = selectionPolicy;
 			return this;
 		}
 
@@ -511,6 +513,7 @@ public final class ContainerList extends AbstractContainer
 			changed = true;
 			this.consumptionPolicy = ConsumptionPolicy.CONSUME_FROM_ALL;
 			this.consumptionFunction = CONSUME_FROM_ALL_POLICY;
+			this.selectionPolicy = null;
 			return this;
 		}
 

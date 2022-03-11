@@ -1,6 +1,17 @@
 Minor updates involving cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
+## Version 4.1 - 2022/03/10
+
+* Bugfixes
+    * Documentation typo: `ConsumptionResult.getContainer()` returns "the lowest common ancestor", not
+      "the highest common ancestor".
+    * Containers that used the same `SelectionPolicy` would corrupt each other's state.
+    * `SelectionPolicy` was selecting non-existent children if the number of children in the container was
+      reduced.
+    * `ContainerList.ConfigurationUpdater.consumeFromOne(), consumeFromAll()` did not update
+      `selectionPolicy`.
+
 ## Version 4.0 - 2022/02/26
 
 * Breaking changes:

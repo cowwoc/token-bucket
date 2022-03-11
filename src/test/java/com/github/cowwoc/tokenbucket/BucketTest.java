@@ -278,4 +278,42 @@ public final class BucketTest
 		Limit lowestRefillRate = bucket.getLimitWithLowestRefillRate();
 		requireThat(lowestRefillRate.getUserData(), "lowestRefillRate.getUserData()").isEqualTo("second");
 	}
+
+	@Test
+	public void roundRobinSupportsReductionOfContainerSize() throws InterruptedException
+	{
+		// SelectionPolicy.ROUND_ROBIN would sometimes reference non-existent children if the number of children
+		// was decreased.
+		ContainerList containerList = ContainerList.builder().
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.initialTokens(10).
+							tokensPerPeriod(1).
+							period(Duration.ofSeconds(1)).
+							build()).
+					userData("bucket1").
+					build()).
+			addBucket(bucket ->
+				bucket.addLimit(limit ->
+						limit.initialTokens(10).
+							tokensPerPeriod(1).
+							period(Duration.ofSeconds(1)).
+							build()).
+					userData("bucket2").
+					build()).
+			build();
+
+		// Selection index = 0
+		ConsumptionResult ignored = containerList.consume();
+		// Selection index = 1
+
+		// Reduce the number of children from 2 to 1
+		try (ContainerList.ConfigurationUpdater updater = containerList.updateConfiguration())
+		{
+			updater.remove(containerList.getChildren().get(0));
+		}
+
+		// Cannot select index 1 since the child was removed. A selection index of 0 should be used.
+		ignored = containerList.consume();
+	}
 }

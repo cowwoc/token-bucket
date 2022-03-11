@@ -69,7 +69,7 @@ public final class ConsumptionResult
 
 	/**
 	 * Returns the container that tokens were consumed from. If tokens were consumed from a single bucket, it is
-	 * returned. If tokens were consumed from multiple buckets, the highest common ancestor is returned.
+	 * returned. If tokens were consumed from multiple buckets, the lowest common ancestor is returned.
 	 *
 	 * @return the container that gave up tokens
 	 */
