@@ -33,8 +33,8 @@ public final class ConsumptionResult
 	 * @param tokensConsumed         the number of tokens that were consumed
 	 * @param requestedAt            the time at which the tokens were requested
 	 * @param consumedAt             the time at which an attempt was made to consume tokens. This value
-	 *                               will differ from {@code requestedAt} if the caller has to wait to
-	 *                               acquire a lock.
+	 *                               differs from {@code requestedAt} in that it is set after a write-lock
+	 *                               has been acquired.
 	 * @param availableAt            the time at which the requested tokens are expected to become available.
 	 *                               If tokens were consumed, this value is equal to {@code consumedAt}.
 	 * @param bottlenecks            the list of Limits that are preventing tokens from being consumed (empty if
@@ -138,6 +138,8 @@ public final class ConsumptionResult
 
 	/**
 	 * Returns the time at which an attempt was made to consume tokens.
+	 * <p>
+	 * This value differs from {@code requestedAt} in that it is set after a write-lock has been acquired.
 	 *
 	 * @return the time at which an attempt was made to consume tokens
 	 */
