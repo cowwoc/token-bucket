@@ -1,6 +1,12 @@
 Minor updates involving cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
+## Version 4.2 - 2022/03/11
+
+* Bugfixes
+    * `Bucket.tryConsume()` sometimes returned `longestDelay.getTokensConsumed() > 0` even though
+      `tokensConsumed == 0`.
+
 ## Version 4.1 - 2022/03/11
 
 * Improvements
