@@ -31,7 +31,7 @@ public final class ContainerList extends AbstractContainer
 	private static final ContainerSecrets CONTAINER_SECRETS = SharedSecrets.INSTANCE.containerSecrets;
 	private static final Function<ContainerSelector, ConsumptionFunction> CONSUME_FROM_ONE_POLICY =
 		selectionPolicy ->
-			(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, abstractBucket) ->
+			(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt, abstractBucket) ->
 			{
 				ContainerList containerList = (ContainerList) abstractBucket;
 				AbstractContainer firstBucket = null;
@@ -59,7 +59,7 @@ public final class ContainerList extends AbstractContainer
 					if (containerMaximumTokens < minimumTokens)
 						continue;
 					ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(container, minimumTokens,
-						maximumTokens, nameOfMinimumTokens, requestedAt);
+						maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt);
 					if (consumptionResult.isSuccessful())
 						return consumptionResult;
 					if (earliestConsumption == null ||
@@ -70,7 +70,7 @@ public final class ContainerList extends AbstractContainer
 				}
 			};
 	private static final ConsumptionFunction CONSUME_FROM_ALL_POLICY =
-		(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, abstractBucket) ->
+		(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt, abstractBucket) ->
 		{
 			ContainerList containerList = (ContainerList) abstractBucket;
 			List<AbstractContainer> children = containerList.children;
@@ -87,17 +87,17 @@ public final class ContainerList extends AbstractContainer
 				for (AbstractContainer child : children)
 					bottlenecks.addAll(CONTAINER_SECRETS.getLimitsWithInsufficientTokens(child, minimumTokens));
 				return new ConsumptionResult(containerList, minimumTokens, maximumTokens, 0,
-					requestedAt, requestedAt, bottlenecks);
+					requestedAt, consumedAt, consumedAt, bottlenecks);
 			}
 
 			for (AbstractContainer bucket : children)
 			{
 				ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(bucket, tokensToConsume,
-					tokensToConsume, nameOfMinimumTokens, requestedAt);
+					tokensToConsume, nameOfMinimumTokens, requestedAt, consumedAt);
 				assertThat(consumptionResult.isSuccessful(), "consumptionResult").isTrue();
 			}
 			return new ConsumptionResult(containerList, minimumTokens, maximumTokens, tokensToConsume,
-				requestedAt, requestedAt, List.of());
+				requestedAt, consumedAt, consumedAt, List.of());
 		};
 
 	/**

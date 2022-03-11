@@ -45,6 +45,7 @@ public interface ContainerSecrets
 	 * @param maximumTokens       the maximum  number of tokens to consume (inclusive)
 	 * @param nameOfMinimumTokens the name of the {@code minimumTokens} parameter
 	 * @param requestedAt         the time at which the tokens were requested
+	 * @param consumedAt          the time at which an attempt was made to consume tokens
 	 * @return the minimum amount of time until the requested number of tokens will be available
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If
@@ -53,5 +54,5 @@ public interface ContainerSecrets
 	 */
 	@CheckReturnValue
 	ConsumptionResult tryConsume(AbstractContainer container, long minimumTokens, long maximumTokens,
-	                             String nameOfMinimumTokens, Instant requestedAt);
+	                             String nameOfMinimumTokens, Instant requestedAt, Instant consumedAt);
 }
