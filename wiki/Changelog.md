@@ -3,6 +3,11 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
 ## Version 4.1 - 2022/03/10
 
+* Improvements
+    * Added `ConsumptionResult.getConsumedAt()` which denotes the time at which an attempt was made to consume
+      tokens. This differs from `getRequestedAt()` in that it is set after a write-lock has been acquired.
+    * `ConsumptionResult.getAvailableAt()` will be equal to `getConsumedAt()` if tokens were consumed, instead
+      of `getRequestedAt()`.
 * Bugfixes
     * Documentation typo: `ConsumptionResult.getContainer()` returns "the lowest common ancestor", not
       "the highest common ancestor".
