@@ -1,7 +1,7 @@
 Minor updates involving cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
-## Version 4.1 - 2022/03/10
+## Version 4.1 - 2022/03/11
 
 * Improvements
     * Added `ConsumptionResult.getConsumedAt()` which denotes the time at which an attempt was made to consume
