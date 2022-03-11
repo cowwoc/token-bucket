@@ -48,13 +48,10 @@ public abstract class AbstractContainer implements Container
 
 			@Override
 			public ConsumptionResult tryConsume(AbstractContainer container, long minimumTokens, long maximumTokens,
-			                                    String nameOfMinimumTokens, Instant requestedAt)
+			                                    String nameOfMinimumTokens, Instant requestedAt, Instant consumedAt)
 			{
-				try (CloseableLock ignored = container.lock.writeLock())
-				{
-					return container.consumptionFunction.tryConsume(minimumTokens, maximumTokens, nameOfMinimumTokens,
-						requestedAt, container);
-				}
+				return container.consumptionFunction.tryConsume(minimumTokens, maximumTokens, nameOfMinimumTokens,
+					requestedAt, consumedAt, container);
 			}
 		};
 	}
@@ -169,7 +166,8 @@ public abstract class AbstractContainer implements Container
 		Instant requestedAt = Instant.now();
 		try (CloseableLock ignored = lock.writeLock())
 		{
-			return consumptionFunction.tryConsume(1, 1, "tokensToConsume", requestedAt, this);
+			Instant consumedAt = Instant.now();
+			return consumptionFunction.tryConsume(1, 1, "tokensToConsume", requestedAt, consumedAt, this);
 		}
 	}
 
@@ -181,7 +179,8 @@ public abstract class AbstractContainer implements Container
 		Instant requestedAt = Instant.now();
 		try (CloseableLock ignored = lock.writeLock())
 		{
-			return consumptionFunction.tryConsume(tokens, tokens, "tokens", requestedAt, this);
+			Instant consumedAt = Instant.now();
+			return consumptionFunction.tryConsume(tokens, tokens, "tokens", requestedAt, consumedAt, this);
 		}
 	}
 
@@ -195,8 +194,9 @@ public abstract class AbstractContainer implements Container
 		Instant requestedAt = Instant.now();
 		try (CloseableLock ignored = lock.writeLock())
 		{
+			Instant consumedAt = Instant.now();
 			return consumptionFunction.tryConsume(minimumTokens, maximumTokens, "minimumTokens", requestedAt,
-				this);
+				consumedAt, this);
 		}
 	}
 
@@ -267,7 +267,8 @@ public abstract class AbstractContainer implements Container
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If {@code tokens} or
 	 *                                  {@code timeout} are negative or zero. If one of the bucket limits has
-	 *                                  a {@code maximumTokens} that is less than {@code tokens}.
+	 *                                  a {@code maximumTokens} that is less than {@code tokens}. If
+	 *                                  {@code consumedAt < requestedAt}.
 	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
 	 *                                  available
 	 */
@@ -283,8 +284,10 @@ public abstract class AbstractContainer implements Container
 		{
 			while (true)
 			{
+				Instant consumedAt = Instant.now();
+				assertThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
 				ConsumptionResult consumptionResult = consumptionFunction.tryConsume(minimumTokens, maximumTokens,
-					nameOfMinimumTokens, requestedAt, this);
+					nameOfMinimumTokens, requestedAt, consumedAt, this);
 				if (consumptionResult.isSuccessful() || timeout.apply(consumptionResult))
 					return consumptionResult;
 				log.debug("consumptionResult: {}", consumptionResult);
@@ -295,8 +298,6 @@ public abstract class AbstractContainer implements Container
 					consumptionResult.getBottlenecks());
 				Conditions.await(tokensUpdated, timeLeft);
 				log.debug("State after sleep: {}", this);
-				// Update the time in order to trigger bucket refills
-				requestedAt = Instant.now();
 			}
 		}
 	}

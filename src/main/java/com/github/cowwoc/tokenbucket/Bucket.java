@@ -139,6 +139,7 @@ public final class Bucket extends AbstractContainer
 	 * @param maximumTokens       the maximum  number of tokens to consume (inclusive)
 	 * @param nameOfMinimumTokens the name of the {@code minimumTokens} parameter
 	 * @param requestedAt         the time at which the tokens were requested
+	 * @param consumedAt          the time at which an attempt was made to consume tokens
 	 * @param abstractBucket      the container
 	 * @return the minimum amount of time until the requested number of tokens will be available
 	 * @throws NullPointerException     if any of the arguments are null
@@ -148,17 +149,19 @@ public final class Bucket extends AbstractContainer
 	 */
 	private static ConsumptionResult tryConsume(long minimumTokens, long maximumTokens,
 	                                            String nameOfMinimumTokens, Instant requestedAt,
-	                                            AbstractContainer abstractBucket)
+	                                            Instant consumedAt, AbstractContainer abstractBucket)
 	{
 		assertThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
 		assertThat(requestedAt, "requestedAt").isNotNull();
+		assertThat(consumedAt, "consumedAt").isNotNull().isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+
 		Bucket bucket = (Bucket) abstractBucket;
 		List<Limit> limits = bucket.getLimits();
 		for (Limit limit : limits)
 		{
 			requireThat(minimumTokens, nameOfMinimumTokens).
 				isLessThanOrEqualTo(limit.getMaximumTokens(), "limit.getMaximumTokens()");
-			limit.refill(requestedAt);
+			limit.refill(consumedAt);
 		}
 		long tokensConsumed = Long.MAX_VALUE;
 		ConsumptionSimulation longestDelay = new ConsumptionSimulation(tokensConsumed, requestedAt, requestedAt);
@@ -166,7 +169,7 @@ public final class Bucket extends AbstractContainer
 		Limit bottleneck = null;
 		for (Limit limit : limits)
 		{
-			ConsumptionSimulation newConsumption = limit.simulateConsumption(minimumTokens, maximumTokens, requestedAt);
+			ConsumptionSimulation newConsumption = limit.simulateConsumption(minimumTokens, maximumTokens, consumedAt);
 			tokensConsumed = Math.min(tokensConsumed, newConsumption.getTokensConsumed());
 			if (comparator.compare(newConsumption.getAvailableIn(), longestDelay.getAvailableIn()) > 0)
 			{
@@ -187,12 +190,12 @@ public final class Bucket extends AbstractContainer
 			if (minimumAvailableTokens > 0)
 				bucket.tokensUpdated.signalAll();
 			return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
-				requestedAt, List.of());
+				consumedAt, consumedAt, List.of());
 		}
 		assertThat(longestDelay.getTokensConsumed(), "longestDelay.getTokensConsumed()").isZero();
 		assert (bottleneck != null);
 		return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
-			longestDelay.getAvailableAt(), List.of(bottleneck));
+			consumedAt, longestDelay.getAvailableAt(), List.of(bottleneck));
 	}
 
 	/**

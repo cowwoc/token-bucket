@@ -17,13 +17,15 @@ public interface ConsumptionFunction
 	 * @param maximumTokens       the maximum number of tokens to consume (inclusive)
 	 * @param nameOfMinimumTokens the name of the {@code minimumTokens} parameter
 	 * @param requestedAt         the time at which the tokens were requested
+	 * @param consumedAt          the time at which an attempt was made to consume tokens
 	 * @param bucket              the enclosing bucket
 	 * @return the minimum amount of time until the requested number of tokens will be available
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code minimumTokens > maximumTokens}. If one of the limits has a
 	 *                                  {@code maximumTokens} that is less than {@code minimumTokensRequested}.
+	 *                                  If {@code requestedAt > consumedAt}
 	 */
 	@CheckReturnValue
 	ConsumptionResult tryConsume(long minimumTokens, long maximumTokens, String nameOfMinimumTokens,
-	                             Instant requestedAt, AbstractContainer bucket);
+	                             Instant requestedAt, Instant consumedAt, AbstractContainer bucket);
 }

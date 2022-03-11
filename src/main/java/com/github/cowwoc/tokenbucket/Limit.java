@@ -1,5 +1,6 @@
 package com.github.cowwoc.tokenbucket;
 
+import com.github.cowwoc.requirements.Requirements;
 import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
@@ -190,22 +191,34 @@ public final class Limit
 	/**
 	 * Refills the limit.
 	 *
-	 * @param requestedAt the time that the tokens were requested at
-	 * @throws NullPointerException if {@code requestedAt} is null
+	 * @param consumedAt the time that the tokens are being consumed
+	 * @throws NullPointerException if {@code consumedAt} is null
 	 */
-	void refill(Instant requestedAt)
+	void refill(Instant consumedAt)
 	{
-		lastRefilledAt = requestedAt;
-		Duration timeElapsed = Duration.between(startOfCurrentPeriod, requestedAt);
+		Requirements requirements = new Requirements().
+			withContext("lastRefilledAt", lastRefilledAt).
+			withContext("startOfCurrentPeriod", startOfCurrentPeriod).
+			withContext("consumedAt", consumedAt);
+		requirements.requireThat(consumedAt, "consumedAt").
+			isGreaterThanOrEqualTo(lastRefilledAt, "lastRefilledAt");
+		lastRefilledAt = consumedAt;
+		Duration timeElapsed = Duration.between(startOfCurrentPeriod, consumedAt);
 		if (timeElapsed.isNegative())
 			return;
-		assertThat(tokensAddedInCurrentPeriod, "tokensAddedInCurrentPeriod").
+		requirements.assertThat(tokensAddedInCurrentPeriod, "tokensAddedInCurrentPeriod").
 			isLessThanOrEqualTo(tokensPerPeriod, "tokensPerPeriod");
 		long tokensToAdd = 0;
 		long numberOfPeriodsElapsed = timeElapsed.dividedBy(period);
 		if (numberOfPeriodsElapsed > 0)
 		{
+			requirements = requirements.
+				withContext("numberOfPeriodsElapsed", numberOfPeriodsElapsed).
+				withContext("tokensPerPeriod", tokensPerPeriod).
+				withContext("tokensAddedInCurrentPeriod", tokensAddedInCurrentPeriod);
 			tokensToAdd += numberOfPeriodsElapsed * tokensPerPeriod - tokensAddedInCurrentPeriod;
+			requirements.assertThat(tokensToAdd, "tokensToAdd").isNotNegative();
+			requirements = requirements.withContext("tokensToAdd", tokensToAdd);
 			tokensAddedInCurrentPeriod = 0;
 			startOfCurrentPeriod = startOfCurrentPeriod.plus(period.multipliedBy(numberOfPeriodsElapsed));
 		}
@@ -216,10 +229,21 @@ public final class Limit
 			double secondsPerRefill = (double) refillSize * secondsPerToken;
 			long refillsElapsed = (long) Math.floor((double) timeElapsedInPeriod.toSeconds() / secondsPerRefill);
 			long tokensToAddInPeriod = refillSize * refillsElapsed - tokensAddedInCurrentPeriod;
+			requirements = requirements.
+				withContext("secondsPerToken", secondsPerToken).
+				withContext("period", period).
+				withContext("tokensPerPeriod", tokensPerPeriod).
+				withContext("secondsPerRefill", secondsPerRefill).
+				withContext("refillSize", refillSize).
+				withContext("refillsElapsed", refillsElapsed).
+				withContext("timeElapsedInPeriod", timeElapsedInPeriod).
+				withContext("tokensAddedInCurrentPeriod", tokensAddedInCurrentPeriod);
+			requirements.assertThat(tokensToAddInPeriod, "tokensToAddInPeriod").isNotNegative();
+			requirements = requirements.withContext("tokensToAddInPeriod", tokensToAddInPeriod);
 			tokensToAdd += tokensToAddInPeriod;
 			tokensAddedInCurrentPeriod += tokensToAddInPeriod;
 		}
-		assertThat(tokensToAdd, "tokensToAdd").isNotNegative();
+		requirements.assertThat(tokensToAdd, "tokensToAdd").isNotNegative();
 		if (tokensToAdd == 0)
 			return;
 
@@ -268,12 +292,12 @@ public final class Limit
 	 *
 	 * @param minimumTokens the minimum number of tokens that were requested
 	 * @param maximumTokens the maximum number of tokens that were requested
-	 * @param requestedAt   the time at which the tokens were requested
+	 * @param consumedAt    the time at which an attempt was made to consume tokens
 	 * @return the simulated consumption
 	 * @throws IllegalArgumentException if the limit has a {@code maximumTokens} that is less than
 	 *                                  {@code minimumTokens}
 	 */
-	ConsumptionSimulation simulateConsumption(long minimumTokens, long maximumTokens, Instant requestedAt)
+	ConsumptionSimulation simulateConsumption(long minimumTokens, long maximumTokens, Instant consumedAt)
 	{
 		assertThat(minimumTokens, "minimumTokens").isPositive();
 		assertThat(maximumTokens, "maximumTokens").isPositive().
@@ -289,16 +313,16 @@ public final class Limit
 			long secondsToAdd = (long) Math.ceil(refillsNeeded * secondsPerRefill);
 			assertThat(secondsToAdd, "secondsToAdd").isPositive();
 			availableAt = lastRefilledAt.plusSeconds(secondsToAdd);
-			assertThat(availableAt, "availableAt").isGreaterThan(requestedAt, "requestAt");
+			assertThat(availableAt, "availableAt").isGreaterThan(consumedAt, "consumedAt");
 			tokensConsumed = 0;
 		}
 		else
 		{
-			availableAt = requestedAt;
+			availableAt = consumedAt;
 			tokensConsumed = Math.min(maximumTokens, availableTokens);
 			assertThat(tokensConsumed, "tokensConsumed()").isPositive();
 		}
-		return new ConsumptionSimulation(tokensConsumed, requestedAt, availableAt);
+		return new ConsumptionSimulation(tokensConsumed, consumedAt, availableAt);
 	}
 
 	/**
@@ -358,25 +382,26 @@ public final class Limit
 	static final class ConsumptionSimulation
 	{
 		private final long tokensConsumed;
-		private final Instant requestedAt;
+		private final Instant consumedAt;
 		private final Instant availableAt;
 
 		/**
 		 * Creates the result of a simulated token consumption.
 		 *
 		 * @param tokensConsumed the number of tokens that would be consumed
-		 * @param requestedAt    the time at which the tokens were requested
+		 * @param consumedAt     the time at which an attempt was made to consume tokens
 		 * @param availableAt    the time at which the tokens will become available
 		 * @throws NullPointerException     if any of the arguments are null
-		 * @throws IllegalArgumentException if {@code tokensConsumed} is negative
+		 * @throws IllegalArgumentException if {@code tokensConsumed} is negative.
+		 *                                  If {@code consumedAt > availableAt}.
 		 */
-		ConsumptionSimulation(long tokensConsumed, Instant requestedAt, Instant availableAt)
+		ConsumptionSimulation(long tokensConsumed, Instant consumedAt, Instant availableAt)
 		{
 			assertThat(tokensConsumed, "tokensConsumed").isNotNegative();
-			assertThat(requestedAt, "requestedAt").isNotNull();
-			assertThat(availableAt, "availableAt").isNotNull();
+			assertThat(consumedAt, "consumedAt").isNotNull();
+			assertThat(availableAt, "availableAt").isNotNull().isGreaterThanOrEqualTo(consumedAt, "consumedAt");
 			this.tokensConsumed = tokensConsumed;
-			this.requestedAt = requestedAt;
+			this.consumedAt = consumedAt;
 			this.availableAt = availableAt;
 		}
 
@@ -417,14 +442,14 @@ public final class Limit
 		 */
 		public Duration getAvailableIn()
 		{
-			return Duration.between(requestedAt, availableAt);
+			return Duration.between(consumedAt, availableAt);
 		}
 
 		@Override
 		public String toString()
 		{
-			return "successful: " + isSuccessful() + ", tokensConsumed: " + tokensConsumed + ", requestedAt: " +
-				requestedAt + ", availableAt: " + availableAt;
+			return "successful: " + isSuccessful() + ", tokensConsumed: " + tokensConsumed + ", consumedAt: " +
+				consumedAt + ", availableAt: " + availableAt;
 		}
 	}
 

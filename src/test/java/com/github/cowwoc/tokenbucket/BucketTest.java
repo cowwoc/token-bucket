@@ -60,12 +60,12 @@ public final class BucketTest
 
 		Limit limit = bucket.getLimits().iterator().next();
 		limit.lastRefilledAt = Instant.now();
-		Instant requestAt = limit.lastRefilledAt;
+		Instant requestedAt = limit.lastRefilledAt;
 		Duration timeIncrement = limit.getPeriod().dividedBy(seconds);
 		for (int i = 1; i <= seconds; ++i)
 		{
-			requestAt = requestAt.plus(timeIncrement);
-			limit.refill(requestAt);
+			requestedAt = requestedAt.plus(timeIncrement);
+			limit.refill(requestedAt);
 			requireThat(limit.availableTokens, "limit.availableTokens").
 				isEqualTo((long) ((double) tokens * i / seconds));
 		}
@@ -74,8 +74,8 @@ public final class BucketTest
 
 		for (int i = 1; i <= seconds; ++i)
 		{
-			requestAt = requestAt.plus(timeIncrement);
-			limit.refill(requestAt);
+			requestedAt = requestedAt.plus(timeIncrement);
+			limit.refill(requestedAt);
 			requireThat(limit.availableTokens, "limit.availableTokens").
 				isEqualTo(tokens + (long) ((double) tokens * i / seconds));
 		}
@@ -220,8 +220,8 @@ public final class BucketTest
 		long expectedTokens = 0;
 		for (int i = 1; i <= 10; ++i)
 		{
-			Instant requestAt = limit.startOfCurrentPeriod.plus(ONE_SECOND);
-			limit.refill(requestAt);
+			Instant requestedAt = limit.startOfCurrentPeriod.plus(ONE_SECOND);
+			limit.refill(requestedAt);
 			expectedTokens += i;
 			try (ConfigurationUpdater update = limit.updateConfiguration())
 			{
