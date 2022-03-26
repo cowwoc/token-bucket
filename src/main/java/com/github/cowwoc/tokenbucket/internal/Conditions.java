@@ -33,7 +33,10 @@ public final class Conditions
 		}
 		catch (ArithmeticException e)
 		{
-			return condition.await(duration.toSeconds(), TimeUnit.SECONDS);
+			long seconds = duration.toSeconds();
+			if (duration.getNano() > 0)
+				++seconds;
+			return condition.await(seconds, TimeUnit.SECONDS);
 		}
 	}
 }
