@@ -1,18 +1,18 @@
 package com.github.cowwoc.tokenbucket;
 
+import com.github.cowwoc.tokenbucket.internal.ToStringBuilder;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import java.util.StringJoiner;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
- * The result of a request to consume tokens.
+ * The result of an attempt to consume tokens.
  */
-@SuppressWarnings("ClassCanBeRecord")
 public final class ConsumptionResult
 {
 	private final Container container;
@@ -33,8 +33,8 @@ public final class ConsumptionResult
 	 * @param tokensConsumed         the number of tokens that were consumed
 	 * @param requestedAt            the time at which the tokens were requested
 	 * @param consumedAt             the time at which an attempt was made to consume tokens. This value
-	 *                               differs from {@code requestedAt} in that it is set after a write-lock
-	 *                               has been acquired.
+	 *                               differs from {@code requestedAt} in that {@code consumedAt} is set
+	 *                               after acquiring a write-lock.
 	 * @param availableAt            the time at which the requested tokens are expected to become available.
 	 *                               If tokens were consumed, this value is equal to {@code consumedAt}.
 	 * @param bottlenecks            the list of Limits that are preventing tokens from being consumed (empty if
@@ -61,8 +61,8 @@ public final class ConsumptionResult
 				isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
 		}
 		assertThat(requestedAt, "requestedAt").isNotNull();
-		assertThat(consumedAt, "consumedAt").isNotNull().isGreaterThanOrEqualTo(requestedAt, "requestedAt");
-		assertThat(availableAt, "availableAt").isNotNull().isGreaterThanOrEqualTo(consumedAt, "consumedAt");
+		assertThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+		assertThat(availableAt, "availableAt").isGreaterThanOrEqualTo(consumedAt, "consumedAt");
 		assertThat(bottlenecks, "bottlenecks").isNotNull();
 		this.container = container;
 		this.minimumTokensRequested = minimumTokensRequested;
@@ -139,7 +139,8 @@ public final class ConsumptionResult
 	/**
 	 * Returns the time at which an attempt was made to consume tokens.
 	 * <p>
-	 * This value differs from {@code requestedAt} in that it is set after a write-lock has been acquired.
+	 * This value differs from {@code requestedAt} in that {@code consumedAt} is set after acquiring a
+	 * write-lock.
 	 *
 	 * @return the time at which an attempt was made to consume tokens
 	 */
@@ -189,24 +190,16 @@ public final class ConsumptionResult
 	@Override
 	public String toString()
 	{
-		StringJoiner properties = new StringJoiner(",\n");
-		properties.add("successful: " + isSuccessful());
-		properties.add("tokensConsumed: " + tokensConsumed);
-		properties.add("minimumTokensRequested: " + minimumTokensRequested);
-		properties.add("maximumTokensRequested: " + maximumTokensRequested);
-		properties.add("requestedAt: " + requestedAt);
-		properties.add("consumedAt: " + consumedAt);
-		properties.add("availableAt: " + availableAt);
-
-		StringJoiner bottlenecksJoiner = new StringJoiner(", ");
-		for (Limit bottlenecks : bottlenecks)
-			bottlenecksJoiner.add(bottlenecks.toString());
-
-		properties.add("bottlenecks: " + bottlenecksJoiner);
-		properties.add("container: " + container);
-		return "\n" +
-			"[\n" +
-			"\t" + properties.toString().replaceAll("\n", "\n\t") + "\n" +
-			"]";
+		return new ToStringBuilder(ConsumptionResult.class).
+			add("successful", isSuccessful()).
+			add("tokensConsumed", tokensConsumed).
+			add("minimumTokensRequested", minimumTokensRequested).
+			add("maximumTokensRequested", maximumTokensRequested).
+			add("requestedAt", requestedAt).
+			add("consumedAt", consumedAt).
+			add("availableAt", availableAt).
+			add("bottlenecks", bottlenecks).
+			add("container", container).
+			toString();
 	}
 }

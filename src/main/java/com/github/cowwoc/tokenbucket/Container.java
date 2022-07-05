@@ -25,7 +25,8 @@ public interface Container
 	Object getUserData();
 
 	/**
-	 * Attempts to consume a single token.
+	 * Consumes a single token, only if one is available at the time of invocation. Consumption order is not
+	 * guaranteed to be fair.
 	 *
 	 * @return the result of the operation
 	 */
@@ -33,7 +34,8 @@ public interface Container
 	ConsumptionResult tryConsume();
 
 	/**
-	 * Attempts to consume exactly {@code tokens}. Consumption is not guaranteed to be fair.
+	 * Consumes {@code tokens} tokens, only if they are available at the time of invocation. Consumption
+	 * order is not guaranteed to be fair.
 	 *
 	 * @param tokens the number of tokens to consume
 	 * @return the result of the operation
@@ -45,7 +47,26 @@ public interface Container
 	ConsumptionResult tryConsume(long tokens);
 
 	/**
-	 * Attempts to consume {@code [minimumTokens, maximumTokens]}. Consumption is not guaranteed to be fair.
+	 * Consumes the requested number of {@code tokens}, only if they become available within the given waiting
+	 * time. Consumption order is not guaranteed to be fair.
+	 *
+	 * @param tokens  the number of tokens to consume
+	 * @param timeout the maximum amount of time to wait
+	 * @param unit    the unit of {@code timeout}
+	 * @return the result of the operation
+	 * @throws NullPointerException     if {@code unit} is null
+	 * @throws IllegalArgumentException if {@code tokens} is negative or zero. If {@code timeout} is negative.
+	 *                                  If the request can never succeed because the container cannot hold the
+	 *                                  requested number of tokens.
+	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
+	 *                                  available
+	 */
+	@CheckReturnValue
+	ConsumptionResult tryConsume(long tokens, long timeout, TimeUnit unit) throws InterruptedException;
+
+	/**
+	 * Consumes {@code [minimumTokens, maximumTokens]} tokens, only if they are available at the time of
+	 * invocation. Consumption order is not guaranteed to be fair.
 	 *
 	 * @param minimumTokens the minimum number of tokens to consume (inclusive)
 	 * @param maximumTokens the maximum number of tokens to consume (inclusive)
@@ -59,7 +80,29 @@ public interface Container
 	ConsumptionResult tryConsume(long minimumTokens, long maximumTokens);
 
 	/**
-	 * Consumes a single token.
+	 * Consumes {@code [minimumTokens, maximumTokens]} tokens, only if they become available within the
+	 * given waiting time. Consumption order is not guaranteed to be fair.
+	 *
+	 * @param minimumTokens the minimum number of tokens to consume (inclusive)
+	 * @param maximumTokens the maximum number of tokens to consume (inclusive)
+	 * @param timeout       the maximum amount of time to wait
+	 * @param unit          the unit of {@code timeout}
+	 * @return the result of the operation
+	 * @throws NullPointerException     if {@code unit} is null
+	 * @throws IllegalArgumentException if {@code tokens} is negative or zero. If {@code timeout} is negative.
+	 *                                  If {@code minimumTokens > maximumTokens}. If the request can never
+	 *                                  succeed because the container cannot hold the requested number of
+	 *                                  tokens.
+	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
+	 *                                  available
+	 */
+	@CheckReturnValue
+	ConsumptionResult tryConsume(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
+		throws InterruptedException;
+
+	/**
+	 * Consumes a single token, blocking until it becomes available. Consumption order is not guaranteed to be
+	 * fair.
 	 *
 	 * @return the result of the operation
 	 * @throws InterruptedException if the thread is interrupted while waiting for tokens to become available
@@ -68,7 +111,8 @@ public interface Container
 	ConsumptionResult consume() throws InterruptedException;
 
 	/**
-	 * Blocks until consume the specified number of tokens. Consumption is not guaranteed to be fair.
+	 * Consumes the specified number of tokens, blocking until they become available. Consumption order is not
+	 * guaranteed to be fair.
 	 *
 	 * @param tokens the number of tokens to consume
 	 * @return the result of the operation
@@ -82,25 +126,8 @@ public interface Container
 	ConsumptionResult consume(long tokens) throws InterruptedException;
 
 	/**
-	 * Blocks until to exactly {@code tokens} are consumed. Consumption is not guaranteed to be fair.
-	 *
-	 * @param tokens  the number of tokens to consume
-	 * @param timeout the maximum amount of time to wait
-	 * @param unit    the unit of {@code timeout}
-	 * @return the result of the operation
-	 * @throws NullPointerException     if {@code unit} is null
-	 * @throws IllegalArgumentException if {@code tokens} or {@code timeout} are negative or zero. If the
-	 *                                  request can never succeed because the container cannot hold the
-	 *                                  requested number of tokens.
-	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
-	 *                                  available
-	 */
-	@CheckReturnValue
-	ConsumptionResult consume(long tokens, long timeout, TimeUnit unit) throws InterruptedException;
-
-	/**
-	 * Blocks until {@code [minimumTokens, maximumTokens]} are consumed. Consumption is not guaranteed to
-	 * be fair.
+	 * Consumes {@code [minimumTokens, maximumTokens]} tokens, blocking until they become available.
+	 * Consumption order is not guaranteed to be fair.
 	 *
 	 * @param minimumTokens the minimum number of tokens to consume (inclusive)
 	 * @param maximumTokens the maximum number of tokens to consume (inclusive)
@@ -115,25 +142,4 @@ public interface Container
 	 */
 	@CheckReturnValue
 	ConsumptionResult consume(long minimumTokens, long maximumTokens) throws InterruptedException;
-
-	/**
-	 * Blocks until {@code [minimumTokens, maximumTokens]} are consumed. Consumption is not guaranteed to
-	 * be fair.
-	 *
-	 * @param minimumTokens the minimum number of tokens to consume (inclusive)
-	 * @param maximumTokens the maximum number of tokens to consume (inclusive)
-	 * @param timeout       the maximum amount of time to wait
-	 * @param unit          the unit of {@code timeout}
-	 * @return the result of the operation
-	 * @throws NullPointerException     if {@code unit} is null
-	 * @throws IllegalArgumentException if {@code tokens} or {@code timeout} are negative or zero. If
-	 *                                  {@code minimumTokens > maximumTokens}. If the request can never
-	 *                                  succeed because the container cannot hold the requested number of
-	 *                                  tokens.
-	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
-	 *                                  available
-	 */
-	@CheckReturnValue
-	ConsumptionResult consume(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
-		throws InterruptedException;
 }

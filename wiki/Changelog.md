@@ -1,6 +1,16 @@
 Minor updates involving cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
+## Version 5.0 - 2022/07/05
+
+* Breaking changes:
+    * Renamed `Container.consume(tokens, timeout, unit)` to `Container.tryConsume(tokens, timeout, unit)`.
+    * Renamed `Container.consume(minimumTokens, maximumTokens, timeout, unit)` to
+      `Container.tryConsume(minimumTokens, maximumTokens, timeout, unit)`.
+* Improvements
+    * Improved performance of Limit.refill().
+    * Container tryConsume() does not wait if `timeout` is zero.
+
 ## Version 4.2 - 2022/03/11
 
 * Bugfixes
@@ -11,7 +21,8 @@ See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
 * Improvements
     * Added `ConsumptionResult.getConsumedAt()` which denotes the time at which an attempt was made to consume
-      tokens. This differs from `getRequestedAt()` in that it is set after a write-lock has been acquired.
+      tokens. This differs from `getRequestedAt()` in that `getConsumedAt()` is set after acquiring a  
+      write-lock.
     * `ConsumptionResult.getAvailableAt()` will be equal to `getConsumedAt()` if tokens were consumed, instead
       of `getRequestedAt()`.
 * Bugfixes

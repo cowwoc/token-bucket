@@ -38,7 +38,8 @@ public interface ContainerSecrets
 	long getMaximumTokens(AbstractContainer container);
 
 	/**
-	 * Attempts to consume {@code [minimumTokens, maximumTokens]}. Consumption is not guaranteed to be fair.
+	 * Consumes {@code [minimumTokens, maximumTokens]} tokens, only if they are available at the time of
+	 * invocation. Consumption order is not guaranteed to be fair.
 	 *
 	 * @param container           the container
 	 * @param minimumTokens       the minimum number of tokens to consume (inclusive)
@@ -46,7 +47,7 @@ public interface ContainerSecrets
 	 * @param nameOfMinimumTokens the name of the {@code minimumTokens} parameter
 	 * @param requestedAt         the time at which the tokens were requested
 	 * @param consumedAt          the time at which an attempt was made to consume tokens
-	 * @return the minimum amount of time until the requested number of tokens will be available
+	 * @return the result of the operation
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If
 	 *                                  {@code minimumTokens > maximumTokens}. If one of the limits has a

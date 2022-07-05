@@ -186,6 +186,19 @@ public abstract class AbstractContainer implements Container
 
 	@Override
 	@CheckReturnValue
+	public ConsumptionResult tryConsume(long tokens, long timeout, TimeUnit unit) throws InterruptedException
+	{
+		requireThat(tokens, "tokens").isPositive();
+		requireThat(timeout, "timeout").isNotNegative();
+		requireThat(unit, "unit").isNotNull();
+		Instant requestedAt = Instant.now();
+		Instant timeLimit = requestedAt.plus(timeout, unit.toChronoUnit());
+		return consume(tokens, tokens, "tokens", requestedAt,
+			consumptionResult -> !consumptionResult.getAvailableAt().isBefore(timeLimit));
+	}
+
+	@Override
+	@CheckReturnValue
 	public ConsumptionResult tryConsume(long minimumTokens, long maximumTokens)
 	{
 		requireThat(minimumTokens, "minimumTokens").isPositive();
@@ -198,6 +211,22 @@ public abstract class AbstractContainer implements Container
 			return consumptionFunction.tryConsume(minimumTokens, maximumTokens, "minimumTokens", requestedAt,
 				consumedAt, this);
 		}
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult tryConsume(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
+		throws InterruptedException
+	{
+		requireThat(minimumTokens, "minimumTokens").isPositive();
+		requireThat(maximumTokens, "maximumTokens").isPositive().
+			isGreaterThanOrEqualTo(minimumTokens, "minimumTokens");
+		requireThat(timeout, "timeout").isNotNegative();
+		requireThat(unit, "unit").isNotNull();
+		Instant requestedAt = Instant.now();
+		Instant timeLimit = requestedAt.plus(timeout, unit.toChronoUnit());
+		return consume(minimumTokens, maximumTokens, "minimumTokens", requestedAt,
+			consumptionResult -> !consumptionResult.getAvailableAt().isBefore(timeLimit));
 	}
 
 	@Override
@@ -218,19 +247,6 @@ public abstract class AbstractContainer implements Container
 
 	@Override
 	@CheckReturnValue
-	public ConsumptionResult consume(long tokens, long timeout, TimeUnit unit) throws InterruptedException
-	{
-		requireThat(tokens, "tokens").isPositive();
-		requireThat(timeout, "timeout").isPositive();
-		requireThat(unit, "unit").isNotNull();
-		Instant requestedAt = Instant.now();
-		Instant timeLimit = requestedAt.plus(timeout, unit.toChronoUnit());
-		return consume(tokens, tokens, "tokens", requestedAt,
-			consumptionResult -> !consumptionResult.getAvailableAt().isBefore(timeLimit));
-	}
-
-	@Override
-	@CheckReturnValue
 	public ConsumptionResult consume(long minimumTokens, long maximumTokens) throws InterruptedException
 	{
 		requireThat(minimumTokens, "minimumTokens").isPositive();
@@ -240,24 +256,9 @@ public abstract class AbstractContainer implements Container
 		return consume(minimumTokens, maximumTokens, "minimumTokens", requestedAt, consumptionResult -> false);
 	}
 
-	@Override
-	@CheckReturnValue
-	public ConsumptionResult consume(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
-		throws InterruptedException
-	{
-		requireThat(minimumTokens, "minimumTokens").isPositive();
-		requireThat(maximumTokens, "maximumTokens").isPositive().
-			isGreaterThanOrEqualTo(minimumTokens, "minimumTokens");
-		requireThat(timeout, "timeout").isPositive();
-		requireThat(unit, "unit").isNotNull();
-		Instant requestedAt = Instant.now();
-		Instant timeLimit = requestedAt.plus(timeout, unit.toChronoUnit());
-		return consume(minimumTokens, maximumTokens, "minimumTokens", requestedAt,
-			consumptionResult -> !consumptionResult.getAvailableAt().isBefore(timeLimit));
-	}
-
 	/**
-	 * Blocks until consume the specified number of tokens. Consumption is not guaranteed to be fair.
+	 * Consumes {@code [minimumTokens, maximumTokens]} tokens, blocking until they become available.
+	 * Consumption order is not guaranteed to be fair.
 	 *
 	 * @param minimumTokens the minimum number of tokens to consume (inclusive)
 	 * @param maximumTokens the maximum number of tokens to consume (inclusive)
@@ -294,7 +295,7 @@ public abstract class AbstractContainer implements Container
 				Duration timeLeft = consumptionResult.getAvailableIn();
 				log.debug("Sleeping {}", timeLeft);
 				log.debug("State before sleep: {}", this);
-				notifyBeforeSleep(this, minimumTokens, requestedAt, consumptionResult.getAvailableAt(),
+				beforeSleep(this, minimumTokens, requestedAt, consumptionResult.getAvailableAt(),
 					consumptionResult.getBottlenecks());
 				Conditions.await(tokensUpdated, timeLeft);
 				log.debug("State after sleep: {}", this);
@@ -312,11 +313,11 @@ public abstract class AbstractContainer implements Container
 	 * @param bottleneck  the list of Limits that are preventing tokens from being consumed
 	 * @throws InterruptedException if the operation should be interrupted
 	 */
-	protected void notifyBeforeSleep(Container container, long tokens, Instant requestedAt, Instant availableAt,
-	                                 List<Limit> bottleneck) throws InterruptedException
+	protected void beforeSleep(Container container, long tokens, Instant requestedAt, Instant availableAt,
+	                           List<Limit> bottleneck) throws InterruptedException
 	{
 		if (parent != null)
-			parent.notifyBeforeSleep(container, tokens, requestedAt, availableAt, bottleneck);
+			parent.beforeSleep(container, tokens, requestedAt, availableAt, bottleneck);
 		for (ContainerListener listener : listeners)
 			listener.beforeSleep(container, tokens, requestedAt, availableAt, bottleneck);
 	}

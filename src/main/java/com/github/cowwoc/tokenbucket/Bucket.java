@@ -5,6 +5,7 @@ import com.github.cowwoc.tokenbucket.Limit.ConsumptionSimulation;
 import com.github.cowwoc.tokenbucket.internal.AbstractContainer;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
+import com.github.cowwoc.tokenbucket.internal.ToStringBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,7 +15,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
-import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -133,7 +133,8 @@ public final class Bucket extends AbstractContainer
 	}
 
 	/**
-	 * Attempts to consume {@code [minimumTokens, maximumTokens]}. Consumption is not guaranteed to be fair.
+	 * Consumes {@code [minimumTokens, maximumTokens]} tokens, only if they are available at the time of
+	 * invocation. Consumption order is not guaranteed to be fair.
 	 *
 	 * @param minimumTokens       the minimum number of tokens to consume (inclusive)
 	 * @param maximumTokens       the maximum  number of tokens to consume (inclusive)
@@ -141,7 +142,7 @@ public final class Bucket extends AbstractContainer
 	 * @param requestedAt         the time at which the tokens were requested
 	 * @param consumedAt          the time at which an attempt was made to consume tokens
 	 * @param abstractBucket      the container
-	 * @return the minimum amount of time until the requested number of tokens will be available
+	 * @return the result of the operation
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If
 	 *                                  {@code minimumTokens > maximumTokens}. If one of the limits has a
@@ -153,7 +154,7 @@ public final class Bucket extends AbstractContainer
 	{
 		assertThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
 		assertThat(requestedAt, "requestedAt").isNotNull();
-		assertThat(consumedAt, "consumedAt").isNotNull().isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+		assertThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
 
 		Bucket bucket = (Bucket) abstractBucket;
 		List<Limit> limits = bucket.getLimits();
@@ -242,9 +243,24 @@ public final class Bucket extends AbstractContainer
 
 	@Override
 	@CheckReturnValue
+	public ConsumptionResult tryConsume(long tokens, long timeout, TimeUnit unit) throws InterruptedException
+	{
+		return super.tryConsume(tokens, timeout, unit);
+	}
+
+	@Override
+	@CheckReturnValue
 	public ConsumptionResult tryConsume(long minimumTokens, long maximumTokens)
 	{
 		return super.tryConsume(minimumTokens, maximumTokens);
+	}
+
+	@Override
+	@CheckReturnValue
+	public ConsumptionResult tryConsume(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
+		throws InterruptedException
+	{
+		return super.tryConsume(minimumTokens, maximumTokens, timeout, unit);
 	}
 
 	@Override
@@ -263,24 +279,9 @@ public final class Bucket extends AbstractContainer
 
 	@Override
 	@CheckReturnValue
-	public ConsumptionResult consume(long tokens, long timeout, TimeUnit unit) throws InterruptedException
-	{
-		return super.consume(tokens, timeout, unit);
-	}
-
-	@Override
-	@CheckReturnValue
 	public ConsumptionResult consume(long minimumTokens, long maximumTokens) throws InterruptedException
 	{
 		return super.consume(minimumTokens, maximumTokens);
-	}
-
-	@Override
-	@CheckReturnValue
-	public ConsumptionResult consume(long minimumTokens, long maximumTokens, long timeout, TimeUnit unit)
-		throws InterruptedException
-	{
-		return super.consume(minimumTokens, maximumTokens, timeout, unit);
 	}
 
 	@Override
@@ -288,18 +289,10 @@ public final class Bucket extends AbstractContainer
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			StringJoiner properties = new StringJoiner(",\n");
-
-			StringJoiner limitsJoiner = new StringJoiner(", ");
-			for (Limit limit : limits)
-				limitsJoiner.add(limit.toString());
-			properties.add("limits: " + limitsJoiner);
-
-			properties.add("userData: " + userData);
-			return "\n" +
-				"[\n" +
-				"\t" + properties.toString().replaceAll("\n", "\n\t") + "\n" +
-				"]";
+			return new ToStringBuilder(Bucket.class).
+				add("limits", limits).
+				add("userData", userData).
+				toString();
 		}
 	}
 
@@ -318,7 +311,7 @@ public final class Bucket extends AbstractContainer
 		 * Builds a bucket.
 		 *
 		 * @param lock     the lock over the bucket's state
-		 * @param consumer consumes the bucket before it is returned
+		 * @param consumer consumes the bucket before it is returned to the user
 		 * @throws NullPointerException if any of the arguments are null
 		 */
 		Builder(ReadWriteLockAsResource lock, Consumer<Bucket> consumer)

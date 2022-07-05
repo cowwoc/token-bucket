@@ -1,5 +1,6 @@
 package com.github.cowwoc.tokenbucket;
 
+import com.github.cowwoc.requirements.Requirements;
 import com.github.cowwoc.tokenbucket.Limit.Builder;
 import com.github.cowwoc.tokenbucket.Limit.ConfigurationUpdater;
 import org.testng.annotations.Test;
@@ -59,27 +60,29 @@ public final class BucketTest
 			build();
 
 		Limit limit = bucket.getLimits().iterator().next();
-		limit.lastRefilledAt = Instant.now();
-		Instant requestedAt = limit.lastRefilledAt;
+		Instant requestedAt = limit.startOfCurrentPeriod;
 		Duration timeIncrement = limit.getPeriod().dividedBy(seconds);
+		Requirements requirements = new Requirements();
 		for (int i = 1; i <= seconds; ++i)
 		{
+			requirements.withContext("i", i);
 			requestedAt = requestedAt.plus(timeIncrement);
 			limit.refill(requestedAt);
-			requireThat(limit.availableTokens, "limit.availableTokens").
+			requirements.requireThat(limit.availableTokens, "limit.availableTokens").
 				isEqualTo((long) ((double) tokens * i / seconds));
 		}
-		requireThat(limit.availableTokens, "limit.availableTokens").
+		requirements.withoutContext("i").
+			requireThat(limit.availableTokens, "limit.availableTokens").
 			isEqualTo(limit.getTokensPerPeriod());
 
 		for (int i = 1; i <= seconds; ++i)
 		{
 			requestedAt = requestedAt.plus(timeIncrement);
 			limit.refill(requestedAt);
-			requireThat(limit.availableTokens, "limit.availableTokens").
+			requirements.requireThat(limit.availableTokens, "limit.availableTokens").
 				isEqualTo(tokens + (long) ((double) tokens * i / seconds));
 		}
-		requireThat(limit.availableTokens, "limit.availableTokens").
+		requirements.requireThat(limit.availableTokens, "limit.availableTokens").
 			isEqualTo(2 * limit.getTokensPerPeriod());
 	}
 
@@ -180,7 +183,7 @@ public final class BucketTest
 
 		Limit limit = bucket.getLimits().iterator().next();
 		long tokensBefore = limit.availableTokens;
-		limit.refill(limit.lastRefilledAt.plusSeconds(5));
+		limit.refill(limit.startOfCurrentPeriod.plusSeconds(5));
 		long tokensAfter = limit.availableTokens;
 		long tokensAdded = tokensAfter - tokensBefore;
 		requireThat(tokensAdded, "tokensAdded").isEqualTo(4L);
@@ -215,7 +218,6 @@ public final class BucketTest
 			build();
 
 		Limit limit = bucket.getLimits().iterator().next();
-		limit.lastRefilledAt = Instant.now();
 		Duration ONE_SECOND = Duration.ofSeconds(1);
 		long expectedTokens = 0;
 		for (int i = 1; i <= 10; ++i)

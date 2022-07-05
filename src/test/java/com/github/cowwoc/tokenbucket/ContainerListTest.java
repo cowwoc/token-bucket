@@ -44,19 +44,19 @@ public final class ContainerListTest
 		requirements.requireThat(second, "second").isNotNull();
 
 		ConsumptionResult consumptionResult = containerList.tryConsume(10);
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").
 			isTrue();
 		requirements.requireThat(consumptionResult.getContainer(), "consumptionResult.getContainer()").
 			isEqualTo(second);
 		consumptionResult = containerList.tryConsume(5);
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").
 			isTrue();
 		requirements.requireThat(consumptionResult.getContainer(), "consumptionResult.getContainer()").
 			isEqualTo(first);
 		consumptionResult = containerList.tryConsume(5);
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").
 			isFalse();
 	}
@@ -93,13 +93,13 @@ public final class ContainerListTest
 		requirements.requireThat(second, "second").isNotNull();
 
 		ConsumptionResult consumptionResult = containerList.tryConsume(10);
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").
 			isTrue();
 		requirements.requireThat(consumptionResult.getContainer(), "consumptionResult.getContainer()").
 			isEqualTo(second);
 		consumptionResult = containerList.tryConsume(10);
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").
 			isFalse();
 	}
@@ -150,8 +150,7 @@ public final class ContainerListTest
 			build();
 
 		ConsumptionResult consumptionResult = containerList.tryConsume(5);
-		Requirements requirements = new Requirements();
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		Requirements requirements = new Requirements().withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
 		requirements.requireThat(consumptionResult.getContainer(), "consumptionResult.getContainer()").
 			isEqualTo(containerList);
@@ -161,7 +160,7 @@ public final class ContainerListTest
 			requirements.requireThat(bucket.getAvailableTokens(), "bucket.getAvailableTokens()").isEqualTo(0L);
 		}
 		consumptionResult = containerList.tryConsume(5);
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isFalse();
 	}
 
@@ -207,8 +206,7 @@ public final class ContainerListTest
 				build()).build();
 
 		ConsumptionResult consumptionResult = containerList.tryConsume(10);
-		Requirements requirements = new Requirements();
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		Requirements requirements = new Requirements().withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
 
 		ContainerList list1 = containerList.getChildren().stream().filter(child -> child.getUserData().equals("list1")).
@@ -235,11 +233,11 @@ public final class ContainerListTest
 		}
 
 		consumptionResult = containerList.tryConsume(10);
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isFalse();
 
 		consumptionResult = containerList.tryConsume(5);
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
 	}
 
@@ -287,8 +285,7 @@ public final class ContainerListTest
 			build();
 
 		ConsumptionResult consumptionResult = containerList.tryConsume(5);
-		Requirements requirements = new Requirements();
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		Requirements requirements = new Requirements().withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
 		requirements.requireThat(consumptionResult.getContainer(), "consumptionResult.getContainer()").
 			isEqualTo(containerList);
@@ -298,7 +295,7 @@ public final class ContainerListTest
 			requirements.requireThat(childList.getAvailableTokens(), "childList.getAvailableTokens()").isEqualTo(0L);
 		}
 		consumptionResult = containerList.tryConsume(5);
-		requirements = requirements.withContext("consumptionResult", consumptionResult);
+		requirements.withContext("consumptionResult", consumptionResult);
 		requirements.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isFalse();
 	}
 
