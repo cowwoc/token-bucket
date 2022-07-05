@@ -4,13 +4,13 @@ import com.github.cowwoc.requirements.Requirements;
 import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
+import com.github.cowwoc.tokenbucket.internal.ToStringBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
-import java.util.StringJoiner;
 import java.util.function.Consumer;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
@@ -32,8 +32,13 @@ public final class Limit
 	private Object userData;
 	Instant startOfCurrentPeriod;
 	long tokensAddedInCurrentPeriod;
-	Instant lastRefilledAt;
+	Instant nextRefillAt;
 	long availableTokens;
+	long refillsElapsed;
+	Duration timePerToken;
+	Duration timePerRefill;
+	long refillsPerPeriod;
+	private final Requirements requirements = new Requirements();
 	private final Logger log = LoggerFactory.getLogger(Limit.class);
 
 	/**
@@ -76,7 +81,27 @@ public final class Limit
 	              long refillSize, Object userData)
 	{
 		// Assume that all other preconditions are enforced by Builder
-		requireThat(maximumTokens, "maximumTokens").
+		setState(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize, userData);
+	}
+
+	/**
+	 * Updates the limit state.
+	 *
+	 * @param tokensPerPeriod the amount of tokens to add to the bucket every {@code period}
+	 * @param period          indicates how often {@code tokensPerPeriod} should be added to the bucket
+	 * @param initialTokens   the initial amount of tokens in the bucket
+	 * @param maximumTokens   the maximum amount of tokens that the bucket may hold before overflowing
+	 *                        (subsequent tokens are discarded)
+	 * @param refillSize      the number of tokens that are refilled at a time
+	 * @param userData        the data associated with this limit
+	 * @throws NullPointerException     if {@code period} is null
+	 * @throws IllegalArgumentException if {@code initialTokens > maximumTokens} or
+	 *                                  {@code tokensPerPeriod > maximumTokens}
+	 */
+	private void setState(long tokensPerPeriod, Duration period, long initialTokens, long maximumTokens,
+	                      long refillSize, Object userData)
+	{
+		requirements.requireThat(maximumTokens, "maximumTokens").
 			isGreaterThanOrEqualTo(tokensPerPeriod, "tokensPerPeriod").
 			isGreaterThanOrEqualTo(initialTokens, "initialTokens");
 		this.tokensPerPeriod = tokensPerPeriod;
@@ -87,9 +112,13 @@ public final class Limit
 		this.userData = userData;
 
 		this.availableTokens = initialTokens;
-		this.lastRefilledAt = Instant.now();
-		this.startOfCurrentPeriod = lastRefilledAt;
+		this.timePerToken = period.dividedBy(tokensPerPeriod);
+		this.timePerRefill = timePerToken.multipliedBy(refillSize);
+		this.startOfCurrentPeriod = Instant.now();
 		this.tokensAddedInCurrentPeriod = 0;
+		this.refillsElapsed = 0;
+		this.refillsPerPeriod = (long) Math.ceil((double) tokensPerPeriod / refillSize);
+		this.nextRefillAt = getRefillAt(1);
 	}
 
 	/**
@@ -163,9 +192,9 @@ public final class Limit
 	 * Returns the number of tokens that are refilled at a time.
 	 * <p>
 	 * At one end of the spectrum, one may refill tokens one at a time during the {@link #getPeriod() period}.
-	 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
+	 * On the other spectrum, one may refill all tokens at the end of the {@code period}.
 	 * <p>
-	 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
+	 * <b>NOTE</b>: When completing a {@code period}, a smaller number of tokens may be refilled in order to
 	 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
 	 *
 	 * @return the minimum number of tokens by which the limit may be refilled
@@ -196,59 +225,123 @@ public final class Limit
 	 */
 	void refill(Instant consumedAt)
 	{
-		Requirements requirements = new Requirements().
-			withContext("lastRefilledAt", lastRefilledAt).
+		if (consumedAt.compareTo(nextRefillAt) < 0)
+			return;
+		requirements.withoutAnyContext().
+			withContext("nextRefillAt", nextRefillAt).
 			withContext("startOfCurrentPeriod", startOfCurrentPeriod).
 			withContext("consumedAt", consumedAt);
-		requirements.requireThat(consumedAt, "consumedAt").
-			isGreaterThanOrEqualTo(lastRefilledAt, "lastRefilledAt");
-		lastRefilledAt = consumedAt;
-		Duration timeElapsed = Duration.between(startOfCurrentPeriod, consumedAt);
-		if (timeElapsed.isNegative())
-			return;
+		Duration timeElapsedSinceStartOfPeriod = Duration.between(startOfCurrentPeriod, consumedAt);
+		requirements.assertThat(timeElapsedSinceStartOfPeriod, "timeElapsedSinceStartOfPeriod").
+			isGreaterThan(Duration.ZERO);
 		requirements.assertThat(tokensAddedInCurrentPeriod, "tokensAddedInCurrentPeriod").
 			isLessThanOrEqualTo(tokensPerPeriod, "tokensPerPeriod");
 		long tokensToAdd = 0;
-		long numberOfPeriodsElapsed = timeElapsed.dividedBy(period);
+		long numberOfPeriodsElapsed = timeElapsedSinceStartOfPeriod.dividedBy(period);
 		if (numberOfPeriodsElapsed > 0)
 		{
-			requirements = requirements.
+			requirements.
 				withContext("numberOfPeriodsElapsed", numberOfPeriodsElapsed).
 				withContext("tokensPerPeriod", tokensPerPeriod).
 				withContext("tokensAddedInCurrentPeriod", tokensAddedInCurrentPeriod);
 			tokensToAdd += numberOfPeriodsElapsed * tokensPerPeriod - tokensAddedInCurrentPeriod;
 			requirements.assertThat(tokensToAdd, "tokensToAdd").isNotNegative();
-			requirements = requirements.withContext("tokensToAdd", tokensToAdd);
+			requirements.withContext("tokensToAdd", tokensToAdd);
 			tokensAddedInCurrentPeriod = 0;
 			startOfCurrentPeriod = startOfCurrentPeriod.plus(period.multipliedBy(numberOfPeriodsElapsed));
 		}
-		Duration timeElapsedInPeriod = timeElapsed.minus(period.multipliedBy(numberOfPeriodsElapsed));
+		Duration timeElapsedInPeriod = timeElapsedSinceStartOfPeriod.
+			minus(period.multipliedBy(numberOfPeriodsElapsed));
+		refillsElapsed = timeElapsedInPeriod.dividedBy(timePerRefill);
+		requirements.assertThat(timeElapsedInPeriod, "timeElapsedInPeriod").
+			isBetweenClosed(timePerRefill.multipliedBy(refillsElapsed),
+				timePerRefill.multipliedBy(refillsElapsed + 1));
 		if (!timeElapsedInPeriod.isZero())
 		{
-			double secondsPerToken = (double) period.toSeconds() / tokensPerPeriod;
-			double secondsPerRefill = (double) refillSize * secondsPerToken;
-			long refillsElapsed = (long) Math.floor((double) timeElapsedInPeriod.toSeconds() / secondsPerRefill);
 			long tokensToAddInPeriod = refillSize * refillsElapsed - tokensAddedInCurrentPeriod;
-			requirements = requirements.
-				withContext("secondsPerToken", secondsPerToken).
+			requirements.
+				withContext("secondsPerToken", timePerToken).
 				withContext("period", period).
 				withContext("tokensPerPeriod", tokensPerPeriod).
-				withContext("secondsPerRefill", secondsPerRefill).
+				withContext("timePerRefill", timePerRefill).
 				withContext("refillSize", refillSize).
 				withContext("refillsElapsed", refillsElapsed).
 				withContext("timeElapsedInPeriod", timeElapsedInPeriod).
 				withContext("tokensAddedInCurrentPeriod", tokensAddedInCurrentPeriod);
 			requirements.assertThat(tokensToAddInPeriod, "tokensToAddInPeriod").isNotNegative();
-			requirements = requirements.withContext("tokensToAddInPeriod", tokensToAddInPeriod);
+			requirements.withContext("tokensToAddInPeriod", tokensToAddInPeriod);
 			tokensToAdd += tokensToAddInPeriod;
 			tokensAddedInCurrentPeriod += tokensToAddInPeriod;
 		}
-		requirements.assertThat(tokensToAdd, "tokensToAdd").isNotNegative();
-		if (tokensToAdd == 0)
-			return;
+		requirements.assertThat(tokensToAdd, "tokensToAdd").isPositive();
 
-		// Overflow the bucket if necessary
-		availableTokens = Math.min(maximumTokens, saturatedAdd(availableTokens, tokensToAdd));
+		nextRefillAt = getRefillAt(refillsElapsed + 1);
+
+		availableTokens = saturatedAdd(availableTokens, tokensToAdd);
+		overflowBucket();
+	}
+
+	/**
+	 * @param refills the desired number of refills
+	 * @return the time at which the desired number of refills will take place
+	 */
+	private Instant getRefillAt(long refills)
+	{
+		Duration timeElapsedInPeriod = timePerRefill.multipliedBy(tokensAddedInCurrentPeriod / tokensPerPeriod);
+		Instant result = this.startOfCurrentPeriod.plus(timeElapsedInPeriod);
+		long numberOfPeriodsElapsed = refills / refillsPerPeriod;
+		if (numberOfPeriodsElapsed > 0)
+		{
+			refills -= numberOfPeriodsElapsed * refillsPerPeriod;
+			result = result.plus(period.multipliedBy(numberOfPeriodsElapsed));
+		}
+
+		long refillsLeftInPeriod = refillsPerPeriod - refillsElapsed;
+		if (refills > refillsLeftInPeriod)
+		{
+			refills -= refillsLeftInPeriod;
+			result = result.plus(timePerRefill.multipliedBy(refillsLeftInPeriod));
+		}
+		Duration timeAddedInPeriod = timePerRefill.multipliedBy(refills);
+		return result.plus(timeAddedInPeriod);
+	}
+
+	/**
+	 * Overflows the bucket, if necessary.
+	 */
+	private void overflowBucket()
+	{
+		availableTokens = Math.min(maximumTokens, availableTokens);
+	}
+
+	/**
+	 * Converts a duration to a {@code double} with a scale of 9.
+	 *
+	 * @param duration the duration to convert
+	 * @return the {@code double} equivalent of the duration, in seconds with a scale of 9
+	 * @throws NullPointerException if {@code duration} is null
+	 */
+	private static double toDoubleSeconds(Duration duration)
+	{
+		return duration.getSeconds() + (double) duration.getNano() / 1_000_000_000;
+	}
+
+	/**
+	 * Converts a {@code BigDecimal} representing seconds to a duration.
+	 * <p>
+	 * No exception is thrown by this method.
+	 * Numbers are rounded up to the nearest nanosecond (away from zero).
+	 * The duration will saturate at the biggest positive or negative {@code Duration}.
+	 *
+	 * @param seconds the number of seconds to convert, positive or negative
+	 * @return a {@code Duration}, not null
+	 */
+	private static Duration durationFromDouble(double seconds)
+	{
+		long nanos = (long) Math.ceil(seconds * 1_000_000_000);
+		long onlySeconds = nanos / 1_000_000_000;
+		long onlyNanos = nanos % 1_000_000_000;
+		return Duration.ofSeconds(onlySeconds, onlyNanos);
 	}
 
 	/**
@@ -308,12 +401,7 @@ public final class Limit
 		{
 			long tokensNeeded = minimumTokens - availableTokens;
 			long refillsNeeded = (long) Math.ceil((double) tokensNeeded / refillSize);
-			double secondsPerToken = (double) period.toSeconds() / tokensPerPeriod;
-			double secondsPerRefill = (double) refillSize * secondsPerToken;
-			long secondsToAdd = (long) Math.ceil(refillsNeeded * secondsPerRefill);
-			assertThat(secondsToAdd, "secondsToAdd").isPositive();
-			availableAt = lastRefilledAt.plusSeconds(secondsToAdd);
-			assertThat(availableAt, "availableAt").isGreaterThan(consumedAt, "consumedAt");
+			availableAt = getRefillAt(refillsElapsed + refillsNeeded);
 			tokensConsumed = 0;
 		}
 		else
@@ -359,19 +447,17 @@ public final class Limit
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			StringJoiner properties = new StringJoiner(",\n");
-			properties.add("availableTokens: " + availableTokens);
-			properties.add("tokensPerPeriod: " + tokensPerPeriod);
-			properties.add("period: " + period);
-			properties.add("maximumTokens: " + maximumTokens);
-			properties.add("refillSize: " + refillSize);
-			properties.add("lastRefilledAt: " + lastRefilledAt);
-			properties.add("initialTokens: " + initialTokens);
-			properties.add("userData: " + userData);
-			return "\n" +
-				"[\n" +
-				"\t" + properties.toString().replaceAll("\n", "\n\t") + "\n" +
-				"]";
+			return new ToStringBuilder(Limit.class).
+				add("availableTokens", availableTokens).
+				add("tokensPerPeriod", tokensPerPeriod).
+				add("period", period).
+				add("maximumTokens", maximumTokens).
+				add("refillSize", refillSize).
+				add("refillsElapsed", refillsElapsed).
+				add("nextRefillAt", nextRefillAt).
+				add("initialTokens", initialTokens).
+				add("userData", userData).
+				toString();
 		}
 	}
 
@@ -399,7 +485,7 @@ public final class Limit
 		{
 			assertThat(tokensConsumed, "tokensConsumed").isNotNegative();
 			assertThat(consumedAt, "consumedAt").isNotNull();
-			assertThat(availableAt, "availableAt").isNotNull().isGreaterThanOrEqualTo(consumedAt, "consumedAt");
+			assertThat(availableAt, "availableAt").isGreaterThanOrEqualTo(consumedAt, "consumedAt");
 			this.tokensConsumed = tokensConsumed;
 			this.consumedAt = consumedAt;
 			this.availableAt = availableAt;
@@ -448,8 +534,12 @@ public final class Limit
 		@Override
 		public String toString()
 		{
-			return "successful: " + isSuccessful() + ", tokensConsumed: " + tokensConsumed + ", consumedAt: " +
-				consumedAt + ", availableAt: " + availableAt;
+			return new ToStringBuilder().
+				add("successful", isSuccessful()).
+				add("tokensConsumed", tokensConsumed).
+				add("consumedAt", consumedAt).
+				add("availableAt", availableAt).
+				toString();
 		}
 	}
 
@@ -479,7 +569,7 @@ public final class Limit
 		 * <li>{@code userData} is {@code null}.</li>
 		 * </ul>
 		 *
-		 * @param consumer consumes the bucket before it is returned
+		 * @param consumer consumes the bucket before it is returned to the user
 		 * @throws NullPointerException if {@code consumer} is null
 		 */
 		Builder(Consumer<Limit> consumer)
@@ -489,7 +579,7 @@ public final class Limit
 		}
 
 		/**
-		 * Returns the amount of tokens to add to the bucket every {@code period}.
+		 * Returns the amount of tokens to add to the bucket every {@code period}. The default is {@code 1}.
 		 *
 		 * @return the amount of tokens to add to the bucket every {@code period}
 		 */
@@ -515,7 +605,8 @@ public final class Limit
 		}
 
 		/**
-		 * Indicates how often {@code tokensPerPeriod} should be added to the bucket.
+		 * Indicates how often {@code tokensPerPeriod} should be added to the bucket. The default is
+		 * {@code 1 second}.
 		 *
 		 * @return how often {@code tokensPerPeriod} should be added to the bucket
 		 */
@@ -543,7 +634,8 @@ public final class Limit
 
 		/**
 		 * Returns the initial amount of tokens in the bucket. The value may be negative, in which case the
-		 * bucket must accumulate a positive number of tokens before they may be consumed.
+		 * bucket must accumulate a positive number of tokens before they may be consumed. The default is
+		 * {@code 0}.
 		 *
 		 * @return the initial amount of tokens in the bucket
 		 */
@@ -568,7 +660,8 @@ public final class Limit
 		}
 
 		/**
-		 * Returns the maximum amount of tokens that the bucket may hold before overflowing.
+		 * Returns the maximum amount of tokens that the bucket may hold before overflowing. The default is
+		 * {@code Long.MAX_VALUE}.
 		 *
 		 * @return the maximum amount of tokens that the bucket may hold before overflowing (subsequent tokens
 		 * are discarded)
@@ -603,6 +696,8 @@ public final class Limit
 		 * <p>
 		 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
 		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
+		 * <p>
+		 * The default is {@code 1}.
 		 *
 		 * @return the minimum number of tokens by which the limit may be refilled
 		 */
@@ -634,7 +729,7 @@ public final class Limit
 		}
 
 		/**
-		 * Returns user data associated with this limit.
+		 * Returns user data associated with this limit. The default is {@code null}.
 		 *
 		 * @return the data associated with this limit
 		 */
@@ -929,20 +1024,10 @@ public final class Limit
 				if (!changed)
 					return;
 				log.debug("Before updating limit: {}", Limit.this);
-				Limit.this.tokensPerPeriod = tokensPerPeriod;
-				Limit.this.period = period;
-				Limit.this.maximumTokens = maximumTokens;
-				Limit.this.refillSize = refillSize;
-				Limit.this.userData = userData;
-
-				// Overflow the bucket if necessary
-				Limit.this.availableTokens = Math.min(maximumTokens, availableTokens);
-
-				// Updating the configuration starts a new period
-				Instant now = Instant.now();
-				Limit.this.startOfCurrentPeriod = now;
-				Limit.this.lastRefilledAt = now;
-				Limit.this.tokensAddedInCurrentPeriod = 0;
+				long availableTokens = this.availableTokens;
+				setState(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize, userData);
+				Limit.this.availableTokens = availableTokens;
+				overflowBucket();
 				log.debug("After updating limit: {}", Limit.this);
 			}
 			finally

@@ -8,13 +8,13 @@ import com.github.cowwoc.tokenbucket.internal.ContainerSecrets;
 import com.github.cowwoc.tokenbucket.internal.ContainerSelector;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
 import com.github.cowwoc.tokenbucket.internal.SharedSecrets;
+import com.github.cowwoc.tokenbucket.internal.ToStringBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.StringJoiner;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -211,19 +211,11 @@ public final class ContainerList extends AbstractContainer
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			StringJoiner properties = new StringJoiner(",\n");
-			properties.add("consumptionPolicy: " + consumptionPolicy);
-
-			StringJoiner childrenJoiner = new StringJoiner(", ");
-			for (Container child : children)
-				childrenJoiner.add(child.toString());
-			properties.add("children: " + childrenJoiner);
-
-			properties.add("userData: " + userData);
-			return "\n" +
-				"[\n" +
-				"\t" + properties.toString().replaceAll("\n", "\n\t") + "\n" +
-				"]";
+			return new ToStringBuilder(ContainerList.class).
+				add("consumptionPolicy", consumptionPolicy).
+				add("children", children).
+				add("userData", userData).
+				toString();
 		}
 	}
 
@@ -264,7 +256,7 @@ public final class ContainerList extends AbstractContainer
 		 * using the round-robin scheduling policy.
 		 *
 		 * @param lock     the lock over the bucket's state
-		 * @param consumer consumes the ContainerList before it is returned
+		 * @param consumer consumes the ContainerList before it is returned to the user
 		 * @throws NullPointerException if any of the arguments are null
 		 */
 		private Builder(ReadWriteLockAsResource lock, Consumer<ContainerList> consumer)

@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * Listens for container events.
  * <p>
- * Containers are notified of descendant events if relevant (e.g. a parent is blocked waiting on a child).
+ * Containers are notified of descendant events, before the descendants.
  * The listener is invoked while holding a lock, so special care must be taken to avoid deadlocks.
  */
 public interface ContainerListener
