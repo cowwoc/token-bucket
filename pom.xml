@@ -51,7 +51,7 @@
 		<maven-source-plugin.version>3.2.1</maven-source-plugin.version>
 		<maven-javadoc-plugin.version>3.4.0</maven-javadoc-plugin.version>
 		<maven-gpg-plugin.version>3.0.1</maven-gpg-plugin.version>
-		<requirements.version>7.0.0</requirements.version>
+		<requirements.version>7.0.3</requirements.version>
 	</properties>
 
 	<dependencies>
