@@ -630,17 +630,20 @@ public final class ContainerList extends AbstractContainer
 		/**
 		 * Updates this ContainerList's configuration.
 		 *
-		 * @throws IllegalArgumentException if {@code limits} is empty
+		 * @throws IllegalArgumentException if {@code children} is empty
 		 */
 		@Override
 		public void close()
 		{
-			requireThat(ContainerList.this.children, "children").isNotEmpty();
 			if (closed)
 				return;
 			closed = true;
 			try
 			{
+				// There is no way to fix a ConfigurationUpdater once try-with-resources exits, so the updater is
+				// closed and the write-lock released even if an exception is thrown.
+				requireThat(children, "children").isNotEmpty();
+
 				if (!changed)
 					return;
 				ContainerList.this.children = List.copyOf(children);

@@ -596,12 +596,15 @@ public final class Bucket extends AbstractContainer
 		@Override
 		public void close()
 		{
-			requireThat(limits, "limits").isNotEmpty();
 			if (closed)
 				return;
 			closed = true;
 			try
 			{
+				// There is no way to fix a ConfigurationUpdater once try-with-resources exits, so the updater is
+				// closed and the write-lock released even if an exception is thrown.
+				requireThat(limits, "limits").isNotEmpty();
+
 				if (!changed)
 					return;
 				Bucket.this.limits = List.copyOf(limits);
