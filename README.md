@@ -17,7 +17,7 @@ the following Maven dependency:
 <dependency>
   <groupId>com.github.cowwoc.token-bucket</groupId>
   <artifactId>token-bucket</artifactId>
-  <version>5.0</version>
+  <version>5.1</version>
 </dependency>
 ```
 
