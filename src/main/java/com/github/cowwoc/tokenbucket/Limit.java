@@ -214,6 +214,15 @@ public final class Limit
 	}
 
 	/**
+	 * @param consumedAt the time that the tokens are being consumed
+	 * @return if {@code consumedAt} is after the next refill time
+	 */
+	boolean readyForRefill(Instant consumedAt)
+	{
+		return consumedAt.compareTo(nextRefillAt) >= 0;
+	}
+
+	/**
 	 * Refills the limit.
 	 *
 	 * @param consumedAt the time that the tokens are being consumed
@@ -221,7 +230,7 @@ public final class Limit
 	 */
 	void refill(Instant consumedAt)
 	{
-		if (consumedAt.compareTo(nextRefillAt) < 0)
+		if (!readyForRefill(consumedAt))
 			return;
 		if (requirements.assertionsAreEnabled())
 		{
@@ -284,7 +293,7 @@ public final class Limit
 			tokensToAdd += tokensToAddInPeriod;
 			tokensAddedInCurrentPeriod += tokensToAddInPeriod;
 		}
-		requirements.assertThat(tokensToAdd, "tokensToAdd").isPositive();
+		requirements.assertThat(tokensToAdd, "tokensToAdd").isNotNegative();
 
 		nextRefillAt = getRefillAt(refillsElapsed + 1);
 
@@ -373,9 +382,12 @@ public final class Limit
 	 */
 	ConsumptionSimulation simulateConsumption(long minimumTokens, long maximumTokens, Instant consumedAt)
 	{
-		assertThat(minimumTokens, "minimumTokens").isPositive();
-		assertThat(maximumTokens, "maximumTokens").isPositive().
-			isGreaterThanOrEqualTo(minimumTokens, "minimumTokens");
+		if (assertionsAreEnabled())
+		{
+			assertThat(minimumTokens, "minimumTokens").isPositive();
+			assertThat(maximumTokens, "maximumTokens").isPositive().
+				isGreaterThanOrEqualTo(minimumTokens, "minimumTokens");
+		}
 		Instant availableAt;
 		long tokensConsumed;
 		if (availableTokens < minimumTokens)
@@ -1082,6 +1094,8 @@ public final class Limit
 				log.debug("Before updating limit: {}", Limit.this);
 				long availableTokens = this.availableTokens;
 				Limit.this.tokensPerPeriod = tokensPerPeriod;
+				if (Limit.this.tokensAddedInCurrentPeriod > Limit.this.tokensPerPeriod)
+					Limit.this.tokensAddedInCurrentPeriod = Limit.this.tokensPerPeriod;
 				Limit.this.period = period;
 				// Do not change initialTokens
 				Limit.this.maximumTokens = maximumTokens;
@@ -1089,6 +1103,7 @@ public final class Limit
 				Limit.this.userData = userData;
 				Limit.this.userDataInToString = userDataInToString;
 				Limit.this.availableTokens = availableTokens;
+				Limit.this.nextRefillAt = Limit.this.startOfCurrentPeriod;
 				overflowBucket();
 				log.debug("After updating limit: {}", Limit.this);
 			}

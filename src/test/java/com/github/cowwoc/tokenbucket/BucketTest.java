@@ -1,6 +1,5 @@
 package com.github.cowwoc.tokenbucket;
 
-import com.github.cowwoc.requirements.Requirements;
 import com.github.cowwoc.tokenbucket.Bucket.ConfigurationUpdater;
 import com.github.cowwoc.tokenbucket.Limit.Builder;
 import org.testng.annotations.Test;
@@ -45,45 +44,6 @@ public final class BucketTest
 			build();
 		//noinspection ResultOfMethodCallIgnored
 		bucket.tryConsume(11, 20);
-	}
-
-	@Test
-	public void roundingError()
-	{
-		int tokens = 9;
-		int seconds = 10;
-		Bucket bucket = Bucket.builder().
-			addLimit(limit ->
-				limit.tokensPerPeriod(tokens).
-					period(Duration.ofSeconds(seconds)).
-					build()).
-			build();
-
-		Limit limit = bucket.getLimits().iterator().next();
-		Instant requestedAt = limit.startOfCurrentPeriod;
-		Duration timeIncrement = limit.getPeriod().dividedBy(seconds);
-		Requirements requirements = new Requirements();
-		for (int i = 1; i <= seconds; ++i)
-		{
-			requirements.withContext("i", i);
-			requestedAt = requestedAt.plus(timeIncrement);
-			limit.refill(requestedAt);
-			requirements.requireThat(limit.availableTokens, "limit.availableTokens").
-				isEqualTo((long) ((double) tokens * i / seconds));
-		}
-		requirements.withoutContext("i").
-			requireThat(limit.availableTokens, "limit.availableTokens").
-			isEqualTo(limit.getTokensPerPeriod());
-
-		for (int i = 1; i <= seconds; ++i)
-		{
-			requestedAt = requestedAt.plus(timeIncrement);
-			limit.refill(requestedAt);
-			requirements.requireThat(limit.availableTokens, "limit.availableTokens").
-				isEqualTo(tokens + (long) ((double) tokens * i / seconds));
-		}
-		requirements.requireThat(limit.availableTokens, "limit.availableTokens").
-			isEqualTo(2 * limit.getTokensPerPeriod());
 	}
 
 	@Test
