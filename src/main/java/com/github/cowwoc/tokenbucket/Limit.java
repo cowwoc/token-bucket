@@ -243,7 +243,7 @@ public final class Limit
 		if (requirements.assertionsAreEnabled())
 		{
 			requirements.requireThat(timeElapsedSinceStartOfPeriod, "timeElapsedSinceStartOfPeriod").
-				isGreaterThan(Duration.ZERO);
+				isGreaterThanOrEqualTo(Duration.ZERO);
 			requirements.requireThat(tokensAddedInCurrentPeriod, "tokensAddedInCurrentPeriod").
 				isLessThanOrEqualTo(tokensPerPeriod, "tokensPerPeriod");
 		}
