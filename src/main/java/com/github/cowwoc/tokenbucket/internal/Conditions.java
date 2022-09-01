@@ -29,14 +29,24 @@ public final class Conditions
 	{
 		try
 		{
-			return condition.await(duration.toMillis(), TimeUnit.MILLISECONDS);
+			long nanosLeft = duration.toNanos();
+			while (nanosLeft > 0)
+				nanosLeft = condition.awaitNanos(nanosLeft);
+			return true;
 		}
 		catch (ArithmeticException e)
 		{
-			long seconds = duration.toSeconds();
-			if (duration.getNano() > 0)
-				++seconds;
-			return condition.await(seconds, TimeUnit.SECONDS);
+			try
+			{
+				return condition.await(duration.toMillis(), TimeUnit.MILLISECONDS);
+			}
+			catch (ArithmeticException e2)
+			{
+				long seconds = duration.toSeconds();
+				if (duration.getNano() > 0)
+					++seconds;
+				return condition.await(seconds, TimeUnit.SECONDS);
+			}
 		}
 	}
 }

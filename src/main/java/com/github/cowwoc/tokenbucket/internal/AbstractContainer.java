@@ -302,7 +302,10 @@ public abstract class AbstractContainer implements Container
 				ConsumptionResult consumptionResult = consumptionFunction.tryConsume(minimumTokens, maximumTokens,
 					nameOfMinimumTokens, requestedAt, consumedAt, this);
 				if (consumptionResult.isSuccessful() || timeout.apply(consumptionResult))
+				{
+					log.debug("consumptionResult: {}", consumptionResult);
 					return consumptionResult;
+				}
 				log.debug("consumptionResult: {}", consumptionResult);
 				Duration timeLeft = consumptionResult.getAvailableIn();
 				log.debug("Sleeping {}", timeLeft);
