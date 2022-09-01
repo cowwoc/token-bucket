@@ -115,6 +115,38 @@ public final class LimitTest
 				period(Duration.ofSeconds(30));
 		}
 		limit.refill(limit.startOfCurrentPeriod.plusSeconds(50));
+		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(30L);
+	}
+
+	@Test
+	public void updateRefillSize()
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit -> limit.
+				tokensPerPeriod(60).
+				period(Duration.ofMinutes(1)).
+				maximumTokens(120).
+				refillSize(10).
+				build()).
+			build();
+		List<Limit> limits = bucket.getLimits();
+		requireThat(limits, "limits").size().isEqualTo(1);
+		Limit limit = limits.iterator().next();
+		limit.refill(limit.startOfCurrentPeriod.plusSeconds(30));
+		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(30L);
+		limit.consume(30);
 		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(0L);
+
+		try (ConfigurationUpdater update = limit.updateConfiguration())
+		{
+			update.refillSize(20);
+		}
+		limit.refill(limit.startOfCurrentPeriod.plusSeconds(30));
+		// Already received 30 tokens in current period based on old refillSize but per the new refillSize we
+		// should have only received 20 tokens, so no new tokens are added.
+		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(0L);
+		limit.refill(limit.startOfCurrentPeriod.plusSeconds(40));
+		// We received 30 tokens in the past, but we are owed 40 per the new refillSize
+		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(10L);
 	}
 }

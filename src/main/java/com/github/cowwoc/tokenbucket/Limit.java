@@ -275,7 +275,10 @@ public final class Limit
 				timePerRefill.multipliedBy(refillsElapsed + 1));
 		if (!timeElapsedInPeriod.isZero())
 		{
-			long tokensToAddInPeriod = refillSize * refillsElapsed - tokensAddedInCurrentPeriod;
+			// If the refillSize was updated mid-period, it is possible for tokensAddedInCurrentPeriod to be
+			// greater than the new refillSize * refillsElapsed. We guard against this using Math.max(0) and
+			// treat all future refills as if the new refillSize applied from the beginning of the period.
+			long tokensToAddInPeriod = Math.max(0, refillSize * refillsElapsed - tokensAddedInCurrentPeriod);
 			if (requirements.assertionsAreEnabled())
 			{
 				requirements.
@@ -1095,7 +1098,7 @@ public final class Limit
 				long availableTokens = this.availableTokens;
 				Limit.this.tokensPerPeriod = tokensPerPeriod;
 				if (Limit.this.tokensAddedInCurrentPeriod > Limit.this.tokensPerPeriod)
-					Limit.this.tokensAddedInCurrentPeriod = Limit.this.tokensPerPeriod;
+					Limit.this.tokensAddedInCurrentPeriod = 0;
 				Limit.this.period = period;
 				// Do not change initialTokens
 				Limit.this.maximumTokens = maximumTokens;
@@ -1103,6 +1106,8 @@ public final class Limit
 				Limit.this.userData = userData;
 				Limit.this.userDataInToString = userDataInToString;
 				Limit.this.availableTokens = availableTokens;
+				Limit.this.timePerToken = period.dividedBy(tokensPerPeriod);
+				Limit.this.timePerRefill = timePerToken.multipliedBy(refillSize);
 				Limit.this.nextRefillAt = Limit.this.startOfCurrentPeriod;
 				overflowBucket();
 				log.debug("After updating limit: {}", Limit.this);
