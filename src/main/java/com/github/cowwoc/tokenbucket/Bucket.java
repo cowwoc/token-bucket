@@ -1,7 +1,7 @@
 package com.github.cowwoc.tokenbucket;
 
-import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.Limit.ConsumptionSimulation;
+import com.github.cowwoc.tokenbucket.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.internal.AbstractContainer;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
+import static com.github.cowwoc.requirements.DefaultRequirements.assertionsAreEnabled;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
@@ -28,8 +29,8 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
  */
 public final class Bucket extends AbstractContainer
 {
-	private final Logger log = LoggerFactory.getLogger(Bucket.class);
 	private List<Limit> limits;
+	private final Logger log = LoggerFactory.getLogger(Bucket.class);
 
 	/**
 	 * Builds a new bucket.
@@ -46,16 +47,18 @@ public final class Bucket extends AbstractContainer
 	/**
 	 * Creates a new bucket.
 	 *
-	 * @param lock      the lock over the bucket's state
-	 * @param listeners the event listeners associated with this bucket
-	 * @param userData  the data associated with this bucket
+	 * @param limits             the limits associated with this bucket
+	 * @param listeners          the event listeners associated with this bucket
+	 * @param userData           the data associated with this bucket
+	 * @param userDataInToString true if the value of {@code userData} should be in {@link #toString()}
+	 * @param lock               the lock over the bucket's state
 	 * @throws NullPointerException     if {@code limits}, {@code listeners} or {@code lock} are null
 	 * @throws IllegalArgumentException if {@code limits} is empty
 	 */
 	private Bucket(List<Limit> limits, List<ContainerListener> listeners, Object userData,
-	               ReadWriteLockAsResource lock)
+	               boolean userDataInToString, ReadWriteLockAsResource lock)
 	{
-		super(listeners, userData, lock, Bucket::tryConsume);
+		super(listeners, userData, userDataInToString, Bucket::tryConsume, lock);
 		assertThat(limits, "limits").isNotEmpty();
 		this.limits = List.copyOf(limits);
 	}
@@ -152,9 +155,12 @@ public final class Bucket extends AbstractContainer
 	                                            String nameOfMinimumTokens, Instant requestedAt,
 	                                            Instant consumedAt, AbstractContainer abstractBucket)
 	{
-		assertThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
-		assertThat(requestedAt, "requestedAt").isNotNull();
-		assertThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+		if (assertionsAreEnabled())
+		{
+			requireThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
+			requireThat(requestedAt, "requestedAt").isNotNull();
+			requireThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+		}
 
 		Bucket bucket = (Bucket) abstractBucket;
 		List<Limit> limits = bucket.getLimits();
@@ -228,6 +234,12 @@ public final class Bucket extends AbstractContainer
 	}
 
 	@Override
+	public boolean isUserDataInToString()
+	{
+		return super.isUserDataInToString();
+	}
+
+	@Override
 	@CheckReturnValue
 	public ConsumptionResult tryConsume()
 	{
@@ -264,14 +276,12 @@ public final class Bucket extends AbstractContainer
 	}
 
 	@Override
-	@CheckReturnValue
 	public ConsumptionResult consume() throws InterruptedException
 	{
 		return super.consume();
 	}
 
 	@Override
-	@CheckReturnValue
 	public ConsumptionResult consume(long tokens) throws InterruptedException
 	{
 		return super.consume(tokens);
@@ -289,9 +299,11 @@ public final class Bucket extends AbstractContainer
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			return new ToStringBuilder(Bucket.class).
-				add("limits", limits).
-				add("userData", userData).
+			ToStringBuilder builder = new ToStringBuilder(Bucket.class).
+				add("limits", limits);
+			if (userDataInToString)
+				builder.add("userData", userData);
+			return builder.
 				toString();
 		}
 	}
@@ -306,6 +318,7 @@ public final class Bucket extends AbstractContainer
 		private final List<Limit> limits = new ArrayList<>();
 		private final List<ContainerListener> listeners = new ArrayList<>();
 		private Object userData;
+		private boolean userDataInToString;
 
 		/**
 		 * Builds a bucket.
@@ -398,6 +411,29 @@ public final class Bucket extends AbstractContainer
 		}
 
 		/**
+		 * Indicates if {@code userData} should be included in {@link #toString()}.
+		 *
+		 * @return true if {@code userData} should be included in {@link #toString()}
+		 */
+		@CheckReturnValue
+		public boolean userDataInToString()
+		{
+			return userDataInToString;
+		}
+
+		/**
+		 * Indicates if {@code userData} should be included in {@link #toString()}.
+		 *
+		 * @param userDataInToString the data associated with this limit
+		 * @return this
+		 */
+		public Builder userDataInString(boolean userDataInToString)
+		{
+			this.userDataInToString = userDataInToString;
+			return this;
+		}
+
+		/**
 		 * Builds a new Bucket.
 		 *
 		 * @return a new Bucket
@@ -407,7 +443,7 @@ public final class Bucket extends AbstractContainer
 			// Locking because of https://stackoverflow.com/a/41990379/14731
 			try (CloseableLock ignored = lock.writeLock())
 			{
-				Bucket bucket = new Bucket(limits, listeners, userData, lock);
+				Bucket bucket = new Bucket(limits, listeners, userData, userDataInToString, lock);
 				for (Limit limit : limits)
 				{
 					limit.bucket = bucket;
@@ -416,6 +452,17 @@ public final class Bucket extends AbstractContainer
 				consumer.accept(bucket);
 				return bucket;
 			}
+		}
+
+		@Override
+		public String toString()
+		{
+			ToStringBuilder builder = new ToStringBuilder(Builder.class).
+				add("limits", limits);
+			if (userDataInToString)
+				builder.add("userData", userData);
+			return builder.
+				toString();
 		}
 	}
 
@@ -431,6 +478,7 @@ public final class Bucket extends AbstractContainer
 		private final List<Limit> limits;
 		private final List<ContainerListener> listeners;
 		private Object userData;
+		private boolean userDataInToString;
 		private boolean changed;
 		private boolean wakeConsumers;
 
@@ -442,6 +490,7 @@ public final class Bucket extends AbstractContainer
 			this.limits = new ArrayList<>(Bucket.this.limits);
 			this.listeners = new ArrayList<>(Bucket.this.listeners);
 			this.userData = Bucket.this.userData;
+			this.userDataInToString = Bucket.this.userDataInToString;
 		}
 
 		/**
@@ -580,6 +629,36 @@ public final class Bucket extends AbstractContainer
 		}
 
 		/**
+		 * Indicates if {@code userData} should be included in {@link #toString()}.
+		 *
+		 * @return true if {@code userData} should be included in {@link #toString()}
+		 * @throws IllegalStateException if the updater is closed
+		 */
+		@CheckReturnValue
+		public boolean userDataInToString()
+		{
+			ensureOpen();
+			return userDataInToString;
+		}
+
+		/**
+		 * Indicates if {@code userData} should be included in {@link #toString()}.
+		 *
+		 * @param userDataInToString the data associated with this limit
+		 * @return this
+		 * @throws IllegalStateException if the updater is closed
+		 */
+		public ConfigurationUpdater userDataInString(boolean userDataInToString)
+		{
+			ensureOpen();
+			if (userDataInToString == this.userDataInToString)
+				return this;
+			changed = true;
+			this.userDataInToString = userDataInToString;
+			return this;
+		}
+
+		/**
 		 * @throws IllegalStateException if the updater is closed
 		 */
 		private void ensureOpen()
@@ -610,6 +689,7 @@ public final class Bucket extends AbstractContainer
 				Bucket.this.limits = List.copyOf(limits);
 				Bucket.this.listeners = List.copyOf(listeners);
 				Bucket.this.userData = userData;
+				Bucket.this.userDataInToString = userDataInToString;
 				if (wakeConsumers)
 					tokensUpdated.signalAll();
 			}
@@ -617,6 +697,18 @@ public final class Bucket extends AbstractContainer
 			{
 				writeLock.close();
 			}
+		}
+
+		@Override
+		public String toString()
+		{
+			ToStringBuilder builder = new ToStringBuilder(ConfigurationUpdater.class).
+				add("limits", limits);
+			if (userDataInToString)
+				builder.add("userData", userData);
+			return builder.
+				add("changed", changed).
+				toString();
 		}
 	}
 }

@@ -1,8 +1,8 @@
 package com.github.cowwoc.tokenbucket.internal;
 
-import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.ConsumptionResult;
 import com.github.cowwoc.tokenbucket.Limit;
+import com.github.cowwoc.tokenbucket.annotation.CheckReturnValue;
 
 import java.time.Instant;
 import java.util.List;

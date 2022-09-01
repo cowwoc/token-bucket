@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
-import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
+import static com.github.cowwoc.requirements.DefaultRequirements.assertionsAreEnabled;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
@@ -50,20 +50,23 @@ public final class ConsumptionResult
 	                         long tokensConsumed, Instant requestedAt, Instant consumedAt, Instant availableAt,
 	                         List<Limit> bottlenecks)
 	{
-		assertThat(container, "container").isNotNull();
-		assertThat(minimumTokensRequested, "minimumTokensRequested").isPositive();
-		assertThat(maximumTokensRequested, "maximumTokensRequested").isPositive().
-			isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
-		assertThat(tokensConsumed, "tokensConsumed").isNotNegative();
-		if (tokensConsumed > 0)
+		if (assertionsAreEnabled())
 		{
-			requireThat(tokensConsumed, "tokensConsumed").
+			requireThat(container, "container").isNotNull();
+			requireThat(minimumTokensRequested, "minimumTokensRequested").isPositive();
+			requireThat(maximumTokensRequested, "maximumTokensRequested").isPositive().
 				isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
+			requireThat(tokensConsumed, "tokensConsumed").isNotNegative();
+			if (tokensConsumed > 0)
+			{
+				requireThat(tokensConsumed, "tokensConsumed").
+					isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
+			}
+			requireThat(requestedAt, "requestedAt").isNotNull();
+			requireThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+			requireThat(availableAt, "availableAt").isGreaterThanOrEqualTo(consumedAt, "consumedAt");
+			requireThat(bottlenecks, "bottlenecks").isNotNull();
 		}
-		assertThat(requestedAt, "requestedAt").isNotNull();
-		assertThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
-		assertThat(availableAt, "availableAt").isGreaterThanOrEqualTo(consumedAt, "consumedAt");
-		assertThat(bottlenecks, "bottlenecks").isNotNull();
 		this.container = container;
 		this.minimumTokensRequested = minimumTokensRequested;
 		this.maximumTokensRequested = maximumTokensRequested;

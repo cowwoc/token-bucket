@@ -5,10 +5,11 @@
 		</encoder>
 	</appender>
 
-	<root level="debug">
+	<root level="warn">
 		<appender-ref ref="STDOUT"/>
 	</root>
 	<logger name="org.testng" level="warn"/>
 	<logger name="com.github.cowwoc.requirements.java.internal.util.Exceptions" level="warn"/>
 	<logger name="com.github.cowwoc.requirements.java.internal.terminal.Terminal" level="warn"/>
+	<logger name="com.github.cowwoc.tokenbucket" level="warn"/>
 </configuration>

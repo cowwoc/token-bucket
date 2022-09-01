@@ -1,12 +1,22 @@
 Minor updates involving cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
+## Version 5.2 - ???
+
+* Improvements
+    * Replaced all references to @CheckReturnValue from 3rd-party dependency with local class.
+    * Added toString() to all Builder/ConfigurationUpdater classes.
+    * Removed @CheckReturnValue from Container.consume() and consume(tokens) because success is guaranteed and
+      the number of tokens that are consumed is known in advance.
+    * Added ConfigurationUpdater.toString().
+    * Performance improvement: Group 3+ assertions behind assertionsAreEnabled() to reduce garbage creation.
+
 ## Version 5.1 - 2022/08/22
 
 * Bug fixes:
     * `ContainerList.ConfigurationUpdater.close()` was not validating the updated children.
 * Improvements
-    * There is no way to fix a `ConfigurationUpdater` once `try-with-resources` exits, so the updater is
+    * There is no way to fix a `ConfigurationUpdater` once `try-with-resources` exits, so now the updater is
       closed and write-lock released even if an exception is thrown.
 
 ## Version 5.0 - 2022/07/05

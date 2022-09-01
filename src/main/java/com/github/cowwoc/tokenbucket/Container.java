@@ -1,6 +1,6 @@
 package com.github.cowwoc.tokenbucket;
 
-import com.github.cowwoc.requirements.annotation.CheckReturnValue;
+import com.github.cowwoc.tokenbucket.annotation.CheckReturnValue;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +23,14 @@ public interface Container
 	 * @return the data associated with this container
 	 */
 	Object getUserData();
+
+	/**
+	 * Indicates if {@code userData} is included in {@code toString()}.
+	 *
+	 * @return true if {@code userData} is included in {@code toString()}
+	 * @throws IllegalStateException if the updater is closed
+	 */
+	boolean isUserDataInToString();
 
 	/**
 	 * Consumes a single token, only if one is available at the time of invocation. Consumption order is not
@@ -107,7 +115,6 @@ public interface Container
 	 * @return the result of the operation
 	 * @throws InterruptedException if the thread is interrupted while waiting for tokens to become available
 	 */
-	@CheckReturnValue
 	ConsumptionResult consume() throws InterruptedException;
 
 	/**
@@ -122,7 +129,6 @@ public interface Container
 	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
 	 *                                  available
 	 */
-	@CheckReturnValue
 	ConsumptionResult consume(long tokens) throws InterruptedException;
 
 	/**

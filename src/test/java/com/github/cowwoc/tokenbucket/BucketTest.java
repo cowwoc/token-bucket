@@ -1,8 +1,8 @@
 package com.github.cowwoc.tokenbucket;
 
 import com.github.cowwoc.requirements.Requirements;
+import com.github.cowwoc.tokenbucket.Bucket.ConfigurationUpdater;
 import com.github.cowwoc.tokenbucket.Limit.Builder;
-import com.github.cowwoc.tokenbucket.Limit.ConfigurationUpdater;
 import org.testng.annotations.Test;
 
 import java.time.Duration;
@@ -118,7 +118,7 @@ public final class BucketTest
 		requireThat(consumptionResult.getAvailableIn(), "consumptionResult.getAvailableIn()").
 			isEqualTo(Duration.ZERO);
 
-		try (ConfigurationUpdater update = limit.updateConfiguration())
+		try (Limit.ConfigurationUpdater update = limit.updateConfiguration())
 		{
 			update.availableTokens(-100);
 		}
@@ -225,7 +225,7 @@ public final class BucketTest
 			Instant requestedAt = limit.startOfCurrentPeriod.plus(ONE_SECOND);
 			limit.refill(requestedAt);
 			expectedTokens += i;
-			try (ConfigurationUpdater update = limit.updateConfiguration())
+			try (Limit.ConfigurationUpdater update = limit.updateConfiguration())
 			{
 				update.tokensPerPeriod(i + 1);
 			}
@@ -250,7 +250,7 @@ public final class BucketTest
 		List<Object> oldOrder = new ArrayList<>(bucket.getLimits().stream().map(Limit::getUserData).toList());
 		for (Limit limit : bucket.getLimits())
 		{
-			try (ConfigurationUpdater update = limit.updateConfiguration())
+			try (Limit.ConfigurationUpdater update = limit.updateConfiguration())
 			{
 				update.tokensPerPeriod(update.tokensPerPeriod() + 1);
 			}
@@ -317,5 +317,22 @@ public final class BucketTest
 
 		// Cannot select index 1 since the child was removed. A selection index of 0 should be used.
 		ignored = containerList.consume();
+	}
+
+	@Test
+	public void userDataInToString()
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit -> limit.userData("limit").build()).
+			build();
+		requireThat(bucket.toString(), "bucket.toString()").doesNotContain("userData");
+
+		try (ConfigurationUpdater update = bucket.updateConfiguration())
+		{
+			requireThat(update.toString(), "update.toString()").doesNotContain("userData");
+			update.userDataInString(true);
+			requireThat(update.toString(), "update.toString()").contains("userData");
+		}
+		requireThat(bucket.toString(), "bucket.toString()").contains("userData");
 	}
 }

@@ -27,4 +27,24 @@ public final class LimitTest
 		}
 		requireThat(limit.getTokensPerPeriod(), "limit.getTokensPerPeriod()").isEqualTo(5L);
 	}
+
+	@Test
+	public void userDataInToString()
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit -> limit.userData("limit").build()).
+			build();
+		List<Limit> limits = bucket.getLimits();
+		requireThat(limits, "limits").size().isEqualTo(1);
+		Limit limit = limits.iterator().next();
+		requireThat(limit.toString(), "limit.toString()").doesNotContain("userData");
+
+		try (ConfigurationUpdater update = limit.updateConfiguration())
+		{
+			requireThat(update.toString(), "update.toString()").doesNotContain("userData");
+			update.userDataInString(true);
+			requireThat(update.toString(), "update.toString()").contains("userData");
+		}
+		requireThat(limit.toString(), "limit.toString()").contains("userData");
+	}
 }

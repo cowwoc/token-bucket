@@ -1,7 +1,7 @@
 package com.github.cowwoc.tokenbucket;
 
 import com.github.cowwoc.requirements.Requirements;
-import com.github.cowwoc.requirements.annotation.CheckReturnValue;
+import com.github.cowwoc.tokenbucket.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
 import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
 import com.github.cowwoc.tokenbucket.internal.ToStringBuilder;
@@ -14,6 +14,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
+import static com.github.cowwoc.requirements.DefaultRequirements.assertionsAreEnabled;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
@@ -26,10 +27,11 @@ public final class Limit
 
 	long tokensPerPeriod;
 	Duration period;
-	long initialTokens;
+	private final long initialTokens;
 	long maximumTokens;
 	long refillSize;
 	private Object userData;
+	private boolean userDataInToString;
 	Instant startOfCurrentPeriod;
 	long tokensAddedInCurrentPeriod;
 	Instant nextRefillAt;
@@ -52,6 +54,7 @@ public final class Limit
 	 * <li>{@code maximumTokens} is {@code Long.MAX_VALUE}.</li>
 	 * <li>{@code refillSize} is 1.</li>
 	 * <li>{@code userData} is {@code null}.</li>
+	 * <li>{@code userDataInToString} is {@code false}.</li>
 	 * </ul>
 	 *
 	 * @return a Limit builder
@@ -66,41 +69,22 @@ public final class Limit
 	/**
 	 * Creates a new limit.
 	 *
-	 * @param tokensPerPeriod the amount of tokens to add to the bucket every {@code period}
-	 * @param period          indicates how often {@code tokensPerPeriod} should be added to the bucket
-	 * @param initialTokens   the initial amount of tokens in the bucket
-	 * @param maximumTokens   the maximum amount of tokens that the bucket may hold before overflowing
-	 *                        (subsequent tokens are discarded)
-	 * @param refillSize      the number of tokens that are refilled at a time
-	 * @param userData        the data associated with this limit
+	 * @param tokensPerPeriod    the amount of tokens to add to the bucket every {@code period}
+	 * @param period             indicates how often {@code tokensPerPeriod} should be added to the bucket
+	 * @param initialTokens      the initial amount of tokens in the bucket
+	 * @param maximumTokens      the maximum amount of tokens that the bucket may hold before overflowing
+	 *                           (subsequent tokens are discarded)
+	 * @param refillSize         the number of tokens that are refilled at a time
+	 * @param userData           the data associated with this limit
+	 * @param userDataInToString true if {@code userData} should be included in {@link #toString()}
 	 * @throws NullPointerException     if {@code period} is null
 	 * @throws IllegalArgumentException if {@code initialTokens > maximumTokens} or
 	 *                                  {@code tokensPerPeriod > maximumTokens}
 	 */
 	private Limit(long tokensPerPeriod, Duration period, long initialTokens, long maximumTokens,
-	              long refillSize, Object userData)
+	              long refillSize, Object userData, boolean userDataInToString)
 	{
 		// Assume that all other preconditions are enforced by Builder
-		setState(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize, userData);
-	}
-
-	/**
-	 * Updates the limit state.
-	 *
-	 * @param tokensPerPeriod the amount of tokens to add to the bucket every {@code period}
-	 * @param period          indicates how often {@code tokensPerPeriod} should be added to the bucket
-	 * @param initialTokens   the initial amount of tokens in the bucket
-	 * @param maximumTokens   the maximum amount of tokens that the bucket may hold before overflowing
-	 *                        (subsequent tokens are discarded)
-	 * @param refillSize      the number of tokens that are refilled at a time
-	 * @param userData        the data associated with this limit
-	 * @throws NullPointerException     if {@code period} is null
-	 * @throws IllegalArgumentException if {@code initialTokens > maximumTokens} or
-	 *                                  {@code tokensPerPeriod > maximumTokens}
-	 */
-	private void setState(long tokensPerPeriod, Duration period, long initialTokens, long maximumTokens,
-	                      long refillSize, Object userData)
-	{
 		requirements.requireThat(maximumTokens, "maximumTokens").
 			isGreaterThanOrEqualTo(tokensPerPeriod, "tokensPerPeriod").
 			isGreaterThanOrEqualTo(initialTokens, "initialTokens");
@@ -110,6 +94,7 @@ public final class Limit
 		this.maximumTokens = maximumTokens;
 		this.refillSize = refillSize;
 		this.userData = userData;
+		this.userDataInToString = userDataInToString;
 
 		this.availableTokens = initialTokens;
 		this.timePerToken = period.dividedBy(tokensPerPeriod);
@@ -218,6 +203,17 @@ public final class Limit
 	}
 
 	/**
+	 * Indicates if {@code userData} is included in {@link #toString()}.
+	 *
+	 * @return true if {@code userData} is included in {@link #toString()}
+	 * @throws IllegalStateException if the updater is closed
+	 */
+	public boolean isUserDataInToString()
+	{
+		return userDataInToString;
+	}
+
+	/**
 	 * Refills the limit.
 	 *
 	 * @param consumedAt the time that the tokens are being consumed
@@ -227,26 +223,38 @@ public final class Limit
 	{
 		if (consumedAt.compareTo(nextRefillAt) < 0)
 			return;
-		requirements.withoutAnyContext().
-			withContext("nextRefillAt", nextRefillAt).
-			withContext("startOfCurrentPeriod", startOfCurrentPeriod).
-			withContext("consumedAt", consumedAt);
+		if (requirements.assertionsAreEnabled())
+		{
+			requirements.withoutAnyContext().
+				withContext("nextRefillAt", nextRefillAt).
+				withContext("startOfCurrentPeriod", startOfCurrentPeriod).
+				withContext("consumedAt", consumedAt);
+		}
 		Duration timeElapsedSinceStartOfPeriod = Duration.between(startOfCurrentPeriod, consumedAt);
-		requirements.assertThat(timeElapsedSinceStartOfPeriod, "timeElapsedSinceStartOfPeriod").
-			isGreaterThan(Duration.ZERO);
-		requirements.assertThat(tokensAddedInCurrentPeriod, "tokensAddedInCurrentPeriod").
-			isLessThanOrEqualTo(tokensPerPeriod, "tokensPerPeriod");
+		if (requirements.assertionsAreEnabled())
+		{
+			requirements.requireThat(timeElapsedSinceStartOfPeriod, "timeElapsedSinceStartOfPeriod").
+				isGreaterThan(Duration.ZERO);
+			requirements.requireThat(tokensAddedInCurrentPeriod, "tokensAddedInCurrentPeriod").
+				isLessThanOrEqualTo(tokensPerPeriod, "tokensPerPeriod");
+		}
 		long tokensToAdd = 0;
 		long numberOfPeriodsElapsed = timeElapsedSinceStartOfPeriod.dividedBy(period);
 		if (numberOfPeriodsElapsed > 0)
 		{
-			requirements.
-				withContext("numberOfPeriodsElapsed", numberOfPeriodsElapsed).
-				withContext("tokensPerPeriod", tokensPerPeriod).
-				withContext("tokensAddedInCurrentPeriod", tokensAddedInCurrentPeriod);
+			if (requirements.assertionsAreEnabled())
+			{
+				requirements.
+					withContext("numberOfPeriodsElapsed", numberOfPeriodsElapsed).
+					withContext("tokensPerPeriod", tokensPerPeriod).
+					withContext("tokensAddedInCurrentPeriod", tokensAddedInCurrentPeriod);
+			}
 			tokensToAdd += numberOfPeriodsElapsed * tokensPerPeriod - tokensAddedInCurrentPeriod;
-			requirements.assertThat(tokensToAdd, "tokensToAdd").isNotNegative();
-			requirements.withContext("tokensToAdd", tokensToAdd);
+			if (requirements.assertionsAreEnabled())
+			{
+				requirements.requireThat(tokensToAdd, "tokensToAdd").isNotNegative();
+				requirements.withContext("tokensToAdd", tokensToAdd);
+			}
 			tokensAddedInCurrentPeriod = 0;
 			startOfCurrentPeriod = startOfCurrentPeriod.plus(period.multipliedBy(numberOfPeriodsElapsed));
 		}
@@ -259,17 +267,20 @@ public final class Limit
 		if (!timeElapsedInPeriod.isZero())
 		{
 			long tokensToAddInPeriod = refillSize * refillsElapsed - tokensAddedInCurrentPeriod;
-			requirements.
-				withContext("secondsPerToken", timePerToken).
-				withContext("period", period).
-				withContext("tokensPerPeriod", tokensPerPeriod).
-				withContext("timePerRefill", timePerRefill).
-				withContext("refillSize", refillSize).
-				withContext("refillsElapsed", refillsElapsed).
-				withContext("timeElapsedInPeriod", timeElapsedInPeriod).
-				withContext("tokensAddedInCurrentPeriod", tokensAddedInCurrentPeriod);
-			requirements.assertThat(tokensToAddInPeriod, "tokensToAddInPeriod").isNotNegative();
-			requirements.withContext("tokensToAddInPeriod", tokensToAddInPeriod);
+			if (requirements.assertionsAreEnabled())
+			{
+				requirements.
+					withContext("secondsPerToken", timePerToken).
+					withContext("period", period).
+					withContext("tokensPerPeriod", tokensPerPeriod).
+					withContext("timePerRefill", timePerRefill).
+					withContext("refillSize", refillSize).
+					withContext("refillsElapsed", refillsElapsed).
+					withContext("timeElapsedInPeriod", timeElapsedInPeriod).
+					withContext("tokensAddedInCurrentPeriod", tokensAddedInCurrentPeriod);
+				requirements.requireThat(tokensToAddInPeriod, "tokensToAddInPeriod").isNotNegative();
+				requirements.withContext("tokensToAddInPeriod", tokensToAddInPeriod);
+			}
 			tokensToAdd += tokensToAddInPeriod;
 			tokensAddedInCurrentPeriod += tokensToAddInPeriod;
 		}
@@ -312,36 +323,6 @@ public final class Limit
 	private void overflowBucket()
 	{
 		availableTokens = Math.min(maximumTokens, availableTokens);
-	}
-
-	/**
-	 * Converts a duration to a {@code double} with a scale of 9.
-	 *
-	 * @param duration the duration to convert
-	 * @return the {@code double} equivalent of the duration, in seconds with a scale of 9
-	 * @throws NullPointerException if {@code duration} is null
-	 */
-	private static double toDoubleSeconds(Duration duration)
-	{
-		return duration.getSeconds() + (double) duration.getNano() / 1_000_000_000;
-	}
-
-	/**
-	 * Converts a {@code BigDecimal} representing seconds to a duration.
-	 * <p>
-	 * No exception is thrown by this method.
-	 * Numbers are rounded up to the nearest nanosecond (away from zero).
-	 * The duration will saturate at the biggest positive or negative {@code Duration}.
-	 *
-	 * @param seconds the number of seconds to convert, positive or negative
-	 * @return a {@code Duration}, not null
-	 */
-	private static Duration durationFromDouble(double seconds)
-	{
-		long nanos = (long) Math.ceil(seconds * 1_000_000_000);
-		long onlySeconds = nanos / 1_000_000_000;
-		long onlyNanos = nanos % 1_000_000_000;
-		return Duration.ofSeconds(onlySeconds, onlyNanos);
 	}
 
 	/**
@@ -447,7 +428,7 @@ public final class Limit
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			return new ToStringBuilder(Limit.class).
+			ToStringBuilder builder = new ToStringBuilder(Limit.class).
 				add("availableTokens", availableTokens).
 				add("tokensPerPeriod", tokensPerPeriod).
 				add("period", period).
@@ -455,16 +436,16 @@ public final class Limit
 				add("refillSize", refillSize).
 				add("refillsElapsed", refillsElapsed).
 				add("nextRefillAt", nextRefillAt).
-				add("initialTokens", initialTokens).
-				add("userData", userData).
-				toString();
+				add("initialTokens", initialTokens);
+			if (userDataInToString)
+				builder.add("userData", userData);
+			return builder.toString();
 		}
 	}
 
 	/**
 	 * The result of a simulated token consumption.
 	 */
-	@SuppressWarnings("ClassCanBeRecord")
 	static final class ConsumptionSimulation
 	{
 		private final long tokensConsumed;
@@ -483,9 +464,12 @@ public final class Limit
 		 */
 		ConsumptionSimulation(long tokensConsumed, Instant consumedAt, Instant availableAt)
 		{
-			assertThat(tokensConsumed, "tokensConsumed").isNotNegative();
-			assertThat(consumedAt, "consumedAt").isNotNull();
-			assertThat(availableAt, "availableAt").isGreaterThanOrEqualTo(consumedAt, "consumedAt");
+			if (assertionsAreEnabled())
+			{
+				requireThat(tokensConsumed, "tokensConsumed").isNotNegative();
+				requireThat(consumedAt, "consumedAt").isNotNull();
+				requireThat(availableAt, "availableAt").isGreaterThanOrEqualTo(consumedAt, "consumedAt");
+			}
 			this.tokensConsumed = tokensConsumed;
 			this.consumedAt = consumedAt;
 			this.availableAt = availableAt;
@@ -555,6 +539,7 @@ public final class Limit
 		private long maximumTokens = Long.MAX_VALUE;
 		private long refillSize = 1;
 		private Object userData;
+		private boolean userDataInToString;
 
 		/**
 		 * Adds a limit that the bucket must respect.
@@ -567,6 +552,7 @@ public final class Limit
 		 * <li>{@code maximumTokens} is {@code Long.MAX_VALUE}.</li>
 		 * <li>{@code refillSize} is 1.</li>
 		 * <li>{@code userData} is {@code null}.</li>
+		 * <li>{@code userDataInToString} is {@code false}.</li>
 		 * </ul>
 		 *
 		 * @param consumer consumes the bucket before it is returned to the user
@@ -753,15 +739,53 @@ public final class Limit
 		}
 
 		/**
+		 * Indicates if {@code userData} should be included in {@link #toString()}.
+		 *
+		 * @return true if {@code userData} should be included in {@link #toString()}
+		 */
+		@CheckReturnValue
+		public boolean userDataInToString()
+		{
+			return userDataInToString;
+		}
+
+		/**
+		 * Indicates if {@code userData} should be included in {@link #toString()}.
+		 *
+		 * @param userDataInToString the data associated with this limit
+		 * @return this
+		 */
+		public Builder userDataInString(boolean userDataInToString)
+		{
+			this.userDataInToString = userDataInToString;
+			return this;
+		}
+
+		/**
 		 * Builds a new Limit.
 		 *
 		 * @return a new Limit
 		 */
 		public Limit build()
 		{
-			Limit limit = new Limit(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize, userData);
+			Limit limit = new Limit(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize, userData,
+				userDataInToString);
 			consumer.accept(limit);
 			return limit;
+		}
+
+		@Override
+		public String toString()
+		{
+			ToStringBuilder builder = new ToStringBuilder(Builder.class).
+				add("tokensPerPeriod", tokensPerPeriod).
+				add("period", period).
+				add("refillSize", refillSize).
+				add("maximumTokens", maximumTokens);
+			if (userDataInToString)
+				builder.add("userData", userData);
+			return builder.
+				toString();
 		}
 	}
 
@@ -776,10 +800,11 @@ public final class Limit
 		private boolean closed;
 		private long tokensPerPeriod;
 		private Duration period;
-		private long maximumTokens;
-		private long refillSize;
-		private Object userData;
 		private long availableTokens;
+		private long refillSize;
+		private long maximumTokens;
+		private Object userData;
+		private boolean userDataInToString;
 		private boolean changed;
 
 		/**
@@ -787,12 +812,13 @@ public final class Limit
 		 */
 		private ConfigurationUpdater()
 		{
-			this.userData = Limit.this.userData;
 			this.tokensPerPeriod = Limit.this.tokensPerPeriod;
 			this.period = Limit.this.period;
-			this.maximumTokens = Limit.this.maximumTokens;
-			this.refillSize = Limit.this.refillSize;
 			this.availableTokens = Limit.this.availableTokens;
+			this.refillSize = Limit.this.refillSize;
+			this.maximumTokens = Limit.this.maximumTokens;
+			this.userData = Limit.this.userData;
+			this.userDataInToString = Limit.this.userDataInToString;
 		}
 
 		/**
@@ -860,36 +886,34 @@ public final class Limit
 		}
 
 		/**
-		 * Returns the maximum amount of tokens that the bucket may hold before overflowing.
+		 * Returns the number of available tokens. The value may be negative, in which case the bucket must
+		 * accumulate a positive number of tokens before they may be consumed.
 		 *
-		 * @return the maximum amount of tokens that the bucket may hold before overflowing (subsequent tokens
-		 * are discarded)
+		 * @return the number of available tokens
 		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
-		public long maximumTokens()
+		public long availableTokens()
 		{
 			ensureOpen();
-			return maximumTokens;
+			return availableTokens;
 		}
 
 		/**
-		 * Sets the maximum amount of tokens that the bucket may hold before overflowing.
+		 * Sets the number of available tokens. The value may be negative, in which case the bucket must
+		 * accumulate a positive number of tokens before they may be consumed.
 		 *
-		 * @param maximumTokens the maximum amount of tokens that the bucket may hold before overflowing
-		 *                      (subsequent tokens are discarded)
+		 * @param availableTokens the number of available tokens
 		 * @return this
-		 * @throws IllegalArgumentException if {@code maximumTokens} is negative or zero
-		 * @throws IllegalStateException    if the updater is closed
+		 * @throws IllegalStateException if the updater is closed
 		 */
-		public ConfigurationUpdater maximumTokens(long maximumTokens)
+		public ConfigurationUpdater availableTokens(long availableTokens)
 		{
-			requireThat(maximumTokens, "maximumTokens").isPositive();
 			ensureOpen();
-			if (maximumTokens == this.maximumTokens)
+			if (availableTokens == this.availableTokens)
 				return this;
 			changed = true;
-			this.maximumTokens = maximumTokens;
+			this.availableTokens = availableTokens;
 			return this;
 		}
 
@@ -938,34 +962,36 @@ public final class Limit
 		}
 
 		/**
-		 * Returns the number of available tokens. The value may be negative, in which case the bucket must
-		 * accumulate a positive number of tokens before they may be consumed.
+		 * Returns the maximum amount of tokens that the bucket may hold before overflowing.
 		 *
-		 * @return the number of available tokens
+		 * @return the maximum amount of tokens that the bucket may hold before overflowing (subsequent tokens
+		 * are discarded)
 		 * @throws IllegalStateException if the updater is closed
 		 */
 		@CheckReturnValue
-		public long availableTokens()
+		public long maximumTokens()
 		{
 			ensureOpen();
-			return availableTokens;
+			return maximumTokens;
 		}
 
 		/**
-		 * Sets the number of available tokens. The value may be negative, in which case the bucket must
-		 * accumulate a positive number of tokens before they may be consumed.
+		 * Sets the maximum amount of tokens that the bucket may hold before overflowing.
 		 *
-		 * @param availableTokens the number of available tokens
+		 * @param maximumTokens the maximum amount of tokens that the bucket may hold before overflowing
+		 *                      (subsequent tokens are discarded)
 		 * @return this
-		 * @throws IllegalStateException if the updater is closed
+		 * @throws IllegalArgumentException if {@code maximumTokens} is negative or zero
+		 * @throws IllegalStateException    if the updater is closed
 		 */
-		public ConfigurationUpdater availableTokens(long availableTokens)
+		public ConfigurationUpdater maximumTokens(long maximumTokens)
 		{
+			requireThat(maximumTokens, "maximumTokens").isPositive();
 			ensureOpen();
-			if (availableTokens == this.availableTokens)
+			if (maximumTokens == this.maximumTokens)
 				return this;
 			changed = true;
-			this.availableTokens = availableTokens;
+			this.maximumTokens = maximumTokens;
 			return this;
 		}
 
@@ -1000,6 +1026,36 @@ public final class Limit
 		}
 
 		/**
+		 * Indicates if {@code userData} should be included in {@link #toString()}.
+		 *
+		 * @return true if {@code userData} should be included in {@link #toString()}
+		 * @throws IllegalStateException if the updater is closed
+		 */
+		@CheckReturnValue
+		public boolean userDataInToString()
+		{
+			ensureOpen();
+			return userDataInToString;
+		}
+
+		/**
+		 * Indicates if {@code userData} should be included in {@link #toString()}.
+		 *
+		 * @param userDataInToString the data associated with this limit
+		 * @return this
+		 * @throws IllegalStateException if the updater is closed
+		 */
+		public ConfigurationUpdater userDataInString(boolean userDataInToString)
+		{
+			ensureOpen();
+			if (userDataInToString == this.userDataInToString)
+				return this;
+			changed = true;
+			this.userDataInToString = userDataInToString;
+			return this;
+		}
+
+		/**
 		 * @throws IllegalStateException if the updater is closed
 		 */
 		private void ensureOpen()
@@ -1025,7 +1081,13 @@ public final class Limit
 					return;
 				log.debug("Before updating limit: {}", Limit.this);
 				long availableTokens = this.availableTokens;
-				setState(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize, userData);
+				Limit.this.tokensPerPeriod = tokensPerPeriod;
+				Limit.this.period = period;
+				// Do not change initialTokens
+				Limit.this.maximumTokens = maximumTokens;
+				Limit.this.refillSize = refillSize;
+				Limit.this.userData = userData;
+				Limit.this.userDataInToString = userDataInToString;
 				Limit.this.availableTokens = availableTokens;
 				overflowBucket();
 				log.debug("After updating limit: {}", Limit.this);
@@ -1034,6 +1096,21 @@ public final class Limit
 			{
 				writeLock.close();
 			}
+		}
+
+		@Override
+		public String toString()
+		{
+			ToStringBuilder builder = new ToStringBuilder(ConfigurationUpdater.class).
+				add("tokensPerPeriod", tokensPerPeriod).
+				add("period", period).
+				add("availableTokens", availableTokens).
+				add("refillSize", refillSize).
+				add("maximumTokens", maximumTokens);
+			if (userDataInToString)
+				builder.add("userData", userData);
+			return builder.add("changed", changed).
+				toString();
 		}
 	}
 }

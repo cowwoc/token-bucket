@@ -1,10 +1,10 @@
 package com.github.cowwoc.tokenbucket.internal;
 
-import com.github.cowwoc.requirements.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.ConsumptionResult;
 import com.github.cowwoc.tokenbucket.Container;
 import com.github.cowwoc.tokenbucket.ContainerListener;
 import com.github.cowwoc.tokenbucket.Limit;
+import com.github.cowwoc.tokenbucket.annotation.CheckReturnValue;
 import org.slf4j.Logger;
 
 import java.time.Duration;
@@ -17,6 +17,7 @@ import java.util.concurrent.locks.StampedLock;
 import java.util.function.Function;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
+import static com.github.cowwoc.requirements.DefaultRequirements.assertionsAreEnabled;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
@@ -93,8 +94,9 @@ public abstract class AbstractContainer implements Container
 	 *   <li>public methods acquire locks.</li>
 	 *   <li>non-public methods assume that the caller already acquired a lock.</li>
 	 *   <li>{@link StampedLock} is better than {@link ReadWriteLock} in almost every way, but does not provide
-	 *   {@link Condition} variables so did not use it: https://vimeo.com/74553130 and
-	 * 	 https://www.javaspecialists.eu/talks/jfokus13/PhaserAndStampedLock.pdf</li>
+	 *   {@link Condition} variables so we did not use it. See the following
+	 *   <a href="https://vimeo.com/74553130">video</a> and
+	 * 	 <a href="https://www.javaspecialists.eu/talks/jfokus13/PhaserAndStampedLock.pdf">article</a></li>
 	 * </ul>
 	 */
 	protected final ReadWriteLockAsResource lock;
@@ -108,24 +110,30 @@ public abstract class AbstractContainer implements Container
 	 */
 	protected AbstractContainer parent;
 	protected Object userData;
+	protected boolean userDataInToString;
 
 	/**
 	 * Creates a new AbstractBucket.
 	 *
 	 * @param listeners           the event listeners associated with this container
 	 * @param userData            the data associated with this container
-	 * @param lock                the lock over the bucket's state
+	 * @param userDataInToString  true if the value of {@code userData} should be in {@link #toString()}
 	 * @param consumptionFunction indicates how tokens are consumed
+	 * @param lock                the lock over the bucket's state
 	 * @throws NullPointerException if {@code listeners}, {@code lock} or {@code consumptionFunction} are null
 	 */
-	protected AbstractContainer(List<ContainerListener> listeners, Object userData,
-	                            ReadWriteLockAsResource lock, ConsumptionFunction consumptionFunction)
+	protected AbstractContainer(List<ContainerListener> listeners, Object userData, boolean userDataInToString,
+	                            ConsumptionFunction consumptionFunction, ReadWriteLockAsResource lock)
 	{
-		assertThat(listeners, "listeners").isNotNull();
-		assertThat(lock, "lock").isNotNull();
-		requireThat(consumptionFunction, "consumptionFunction").isNotNull();
+		if (assertionsAreEnabled())
+		{
+			requireThat(listeners, "listeners").isNotNull();
+			requireThat(consumptionFunction, "consumptionFunction").isNotNull();
+			requireThat(lock, "lock").isNotNull();
+		}
 		this.listeners = List.copyOf(listeners);
 		this.userData = userData;
+		this.userDataInToString = userDataInToString;
 		this.lock = lock;
 		this.consumptionFunction = consumptionFunction;
 		this.tokensUpdated = lock.newCondition();
@@ -157,6 +165,12 @@ public abstract class AbstractContainer implements Container
 	public Object getUserData()
 	{
 		return userData;
+	}
+
+	@Override
+	public boolean isUserDataInToString()
+	{
+		return userDataInToString;
 	}
 
 	@Override
@@ -230,14 +244,12 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
-	@CheckReturnValue
 	public ConsumptionResult consume() throws InterruptedException
 	{
 		return consume(1);
 	}
 
 	@Override
-	@CheckReturnValue
 	public ConsumptionResult consume(long tokens) throws InterruptedException
 	{
 		requireThat(tokens, "tokens").isPositive();
