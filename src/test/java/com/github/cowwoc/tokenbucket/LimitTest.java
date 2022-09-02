@@ -91,7 +91,7 @@ public final class LimitTest
 	}
 
 	@Test
-	public void refillSizeNotMultipleOfMaxTokens()
+	public void maxTokensIsNotMultipleOfRefillSize()
 	{
 		Bucket bucket = Bucket.builder().
 			addLimit(limit -> limit.

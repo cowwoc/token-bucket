@@ -95,7 +95,6 @@ public final class Limit
 		this.refillSize = refillSize;
 		this.userData = userData;
 		this.userDataInToString = userDataInToString;
-
 		this.availableTokens = initialTokens;
 		this.timePerToken = period.dividedBy(tokensPerPeriod);
 		this.timePerRefill = timePerToken.multipliedBy(refillSize);
