@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.github.cowwoc.token-bucket</groupId>
 	<artifactId>token-bucket</artifactId>
-	<version>5.2</version>
+	<version>5.3-SNAPSHOT</version>
 	<packaging>jar</packaging>
 	<name>Token-Bucket</name>
 	<description>A Java implementation of the Token Bucket algorithm</description>
