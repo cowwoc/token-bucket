@@ -110,19 +110,17 @@ public abstract class AbstractContainer implements Container
 	 */
 	protected AbstractContainer parent;
 	protected Object userData;
-	protected boolean userDataInToString;
 
 	/**
 	 * Creates a new AbstractBucket.
 	 *
 	 * @param listeners           the event listeners associated with this container
 	 * @param userData            the data associated with this container
-	 * @param userDataInToString  true if the value of {@code userData} should be in {@link #toString()}
 	 * @param consumptionFunction indicates how tokens are consumed
 	 * @param lock                the lock over the bucket's state
 	 * @throws NullPointerException if {@code listeners}, {@code lock} or {@code consumptionFunction} are null
 	 */
-	protected AbstractContainer(List<ContainerListener> listeners, Object userData, boolean userDataInToString,
+	protected AbstractContainer(List<ContainerListener> listeners, Object userData,
 	                            ConsumptionFunction consumptionFunction, ReadWriteLockAsResource lock)
 	{
 		if (assertionsAreEnabled())
@@ -133,7 +131,6 @@ public abstract class AbstractContainer implements Container
 		}
 		this.listeners = List.copyOf(listeners);
 		this.userData = userData;
-		this.userDataInToString = userDataInToString;
 		this.lock = lock;
 		this.consumptionFunction = consumptionFunction;
 		this.tokensUpdated = lock.newCondition();
@@ -168,12 +165,6 @@ public abstract class AbstractContainer implements Container
 	}
 
 	@Override
-	public boolean isUserDataInToString()
-	{
-		return userDataInToString;
-	}
-
-	@Override
 	@CheckReturnValue
 	public ConsumptionResult tryConsume()
 	{
@@ -181,6 +172,23 @@ public abstract class AbstractContainer implements Container
 		try (CloseableLock ignored = lock.writeLock())
 		{
 			Instant consumedAt = Instant.now();
+			return consumptionFunction.tryConsume(1, 1, "tokensToConsume", requestedAt, consumedAt, this);
+		}
+	}
+
+	/**
+	 * This method is only meant to be used by tests. It is equivalent to invoking {@link #tryConsume()} with
+	 * the specified {@code consumedAt} value.
+	 *
+	 * @param consumedAt the time at which the tokens are being consumed
+	 * @return the result of the operation
+	 */
+	@CheckReturnValue
+	protected ConsumptionResult tryConsume(Instant consumedAt)
+	{
+		Instant requestedAt = Instant.now();
+		try (CloseableLock ignored = lock.writeLock())
+		{
 			return consumptionFunction.tryConsume(1, 1, "tokensToConsume", requestedAt, consumedAt, this);
 		}
 	}
@@ -195,6 +203,25 @@ public abstract class AbstractContainer implements Container
 		{
 			Instant consumedAt = Instant.now();
 			return consumptionFunction.tryConsume(tokens, tokens, "tokens", requestedAt, consumedAt, this);
+		}
+	}
+
+	/**
+	 * This method is only meant to be used by tests. It is equivalent to invoking {@link #tryConsume()} with
+	 * the specified {@code consumedAt} value.
+	 *
+	 * @param consumedAt the time at which the tokens are being consumed
+	 * @param tokens     the number of tokens to consume
+	 * @return the result of the operation
+	 */
+	@CheckReturnValue
+	protected ConsumptionResult tryConsume(Instant consumedAt, long tokens)
+	{
+		//noinspection UnnecessaryLocalVariable
+		Instant requestedAt = consumedAt;
+		try (CloseableLock ignored = lock.writeLock())
+		{
+			return consumptionFunction.tryConsume(tokens, tokens, "tokensToConsume", requestedAt, consumedAt, this);
 		}
 	}
 

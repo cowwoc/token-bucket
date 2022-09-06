@@ -22,6 +22,7 @@ public final class ConsumptionResult
 	private final Instant requestedAt;
 	private final Instant consumedAt;
 	private final Instant availableAt;
+	private final long tokensLeft;
 	private final List<Limit> bottlenecks;
 
 	/**
@@ -37,18 +38,20 @@ public final class ConsumptionResult
 	 *                               after acquiring a write-lock.
 	 * @param availableAt            the time at which the requested tokens are expected to become available.
 	 *                               If tokens were consumed, this value is equal to {@code consumedAt}.
+	 * @param tokensLeft             the number of tokens left
 	 * @param bottlenecks            the list of Limits that are preventing tokens from being consumed (empty if
 	 *                               none)
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code minimumTokensRequested} or {@code maximumTokensRequests}
-	 *                                  are negative or zero. If {@code tokensConsumed} is negative. If
+	 *                                  are negative or zero. If {@code tokensConsumed} or {@code tokensLeft}
+	 *                                  are negative. If
 	 *                                  {@code minimumTokensRequested > maximumTokensRequested}. If
 	 *                                  {@code tokensConsumed > 0 && tokensConsumed < minimumTokensRequested}.
 	 *                                  If {@code requestedAt > consumedAt} or {@code consumedAt > availableAt}.
 	 */
 	public ConsumptionResult(Container container, long minimumTokensRequested, long maximumTokensRequested,
 	                         long tokensConsumed, Instant requestedAt, Instant consumedAt, Instant availableAt,
-	                         List<Limit> bottlenecks)
+	                         long tokensLeft, List<Limit> bottlenecks)
 	{
 		if (assertionsAreEnabled())
 		{
@@ -65,6 +68,7 @@ public final class ConsumptionResult
 			requireThat(requestedAt, "requestedAt").isNotNull();
 			requireThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
 			requireThat(availableAt, "availableAt").isGreaterThanOrEqualTo(consumedAt, "consumedAt");
+			requireThat(tokensLeft, "tokensLeft").isNotNegative();
 			requireThat(bottlenecks, "bottlenecks").isNotNull();
 		}
 		this.container = container;
@@ -74,6 +78,7 @@ public final class ConsumptionResult
 		this.requestedAt = requestedAt;
 		this.consumedAt = consumedAt;
 		this.availableAt = availableAt;
+		this.tokensLeft = tokensLeft;
 		this.bottlenecks = bottlenecks;
 	}
 
@@ -163,6 +168,16 @@ public final class ConsumptionResult
 	}
 
 	/**
+	 * Returns the number of tokens left.
+	 *
+	 * @return the number of tokens left
+	 */
+	public long getTokensLeft()
+	{
+		return tokensLeft;
+	}
+
+	/**
 	 * Returns the list of limits that are preventing tokens from being consumed.
 	 *
 	 * @return empty if tokens were consumed
@@ -180,14 +195,15 @@ public final class ConsumptionResult
 		return other.container == container && other.minimumTokensRequested == minimumTokensRequested &&
 			other.maximumTokensRequested == maximumTokensRequested && other.tokensConsumed == tokensConsumed &&
 			other.requestedAt.equals(requestedAt) && other.consumedAt.equals(consumedAt) &&
-			other.availableAt.equals(availableAt) && other.getBottlenecks().equals(bottlenecks);
+			other.availableAt.equals(availableAt) && other.tokensLeft == tokensLeft &&
+			other.getBottlenecks().equals(bottlenecks);
 	}
 
 	@Override
 	public int hashCode()
 	{
 		return Objects.hash(container, minimumTokensRequested, maximumTokensRequested, tokensConsumed,
-			requestedAt, consumedAt, availableAt, bottlenecks);
+			requestedAt, consumedAt, availableAt, tokensLeft, bottlenecks);
 	}
 
 	@Override
@@ -201,6 +217,7 @@ public final class ConsumptionResult
 			add("requestedAt", requestedAt).
 			add("consumedAt", consumedAt).
 			add("availableAt", availableAt).
+			add("tokensLeft", tokensLeft).
 			add("bottlenecks", bottlenecks).
 			add("container", container).
 			toString();

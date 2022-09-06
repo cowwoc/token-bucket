@@ -31,10 +31,9 @@ public final class Limit
 	long maximumTokens;
 	long refillSize;
 	private Object userData;
-	private boolean userDataInToString;
 	Instant startOfCurrentPeriod;
-	long tokensAddedInCurrentPeriod;
 	Instant nextRefillAt;
+	long tokensAddedInCurrentPeriod;
 	long availableTokens;
 	long refillsElapsed;
 	Duration timePerToken;
@@ -54,7 +53,6 @@ public final class Limit
 	 * <li>{@code maximumTokens} is {@code Long.MAX_VALUE}.</li>
 	 * <li>{@code refillSize} is 1.</li>
 	 * <li>{@code userData} is {@code null}.</li>
-	 * <li>{@code userDataInToString} is {@code false}.</li>
 	 * </ul>
 	 *
 	 * @return a Limit builder
@@ -69,20 +67,19 @@ public final class Limit
 	/**
 	 * Creates a new limit.
 	 *
-	 * @param tokensPerPeriod    the amount of tokens to add to the bucket every {@code period}
-	 * @param period             indicates how often {@code tokensPerPeriod} should be added to the bucket
-	 * @param initialTokens      the initial amount of tokens in the bucket
-	 * @param maximumTokens      the maximum amount of tokens that the bucket may hold before overflowing
-	 *                           (subsequent tokens are discarded)
-	 * @param refillSize         the number of tokens that are refilled at a time
-	 * @param userData           the data associated with this limit
-	 * @param userDataInToString true if {@code userData} should be included in {@link #toString()}
+	 * @param tokensPerPeriod the amount of tokens to add to the bucket every {@code period}
+	 * @param period          indicates how often {@code tokensPerPeriod} should be added to the bucket
+	 * @param initialTokens   the initial amount of tokens in the bucket
+	 * @param maximumTokens   the maximum amount of tokens that the bucket may hold before overflowing
+	 *                        (subsequent tokens are discarded)
+	 * @param refillSize      the number of tokens that are refilled at a time
+	 * @param userData        the data associated with this limit
 	 * @throws NullPointerException     if {@code period} is null
 	 * @throws IllegalArgumentException if {@code initialTokens > maximumTokens} or
 	 *                                  {@code tokensPerPeriod > maximumTokens}
 	 */
 	private Limit(long tokensPerPeriod, Duration period, long initialTokens, long maximumTokens,
-	              long refillSize, Object userData, boolean userDataInToString)
+	              long refillSize, Object userData)
 	{
 		// Assume that all other preconditions are enforced by Builder
 		requirements.requireThat(maximumTokens, "maximumTokens").
@@ -94,7 +91,6 @@ public final class Limit
 		this.maximumTokens = maximumTokens;
 		this.refillSize = refillSize;
 		this.userData = userData;
-		this.userDataInToString = userDataInToString;
 		this.availableTokens = initialTokens;
 		this.timePerToken = period.dividedBy(tokensPerPeriod);
 		this.timePerRefill = timePerToken.multipliedBy(refillSize);
@@ -102,7 +98,7 @@ public final class Limit
 		this.tokensAddedInCurrentPeriod = 0;
 		this.refillsElapsed = 0;
 		this.refillsPerPeriod = (long) Math.ceil((double) tokensPerPeriod / refillSize);
-		this.nextRefillAt = getRefillAt(1);
+		this.nextRefillAt = getRefillEndTime(1);
 	}
 
 	/**
@@ -179,7 +175,7 @@ public final class Limit
 	 * On the other spectrum, one may refill all tokens at the end of the {@code period}.
 	 * <p>
 	 * <b>NOTE</b>: When completing a {@code period}, a smaller number of tokens may be refilled in order to
-	 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
+	 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod} due to rounding errors.
 	 *
 	 * @return the minimum number of tokens by which the limit may be refilled
 	 */
@@ -199,17 +195,6 @@ public final class Limit
 	public Object getUserData()
 	{
 		return userData;
-	}
-
-	/**
-	 * Indicates if {@code userData} is included in {@link #toString()}.
-	 *
-	 * @return true if {@code userData} is included in {@link #toString()}
-	 * @throws IllegalStateException if the updater is closed
-	 */
-	public boolean isUserDataInToString()
-	{
-		return userDataInToString;
 	}
 
 	/**
@@ -281,7 +266,7 @@ public final class Limit
 			if (requirements.assertionsAreEnabled())
 			{
 				requirements.
-					withContext("secondsPerToken", timePerToken).
+					withContext("timePerToken", timePerToken).
 					withContext("period", period).
 					withContext("tokensPerPeriod", tokensPerPeriod).
 					withContext("timePerRefill", timePerRefill).
@@ -297,20 +282,19 @@ public final class Limit
 		}
 		requirements.assertThat(tokensToAdd, "tokensToAdd").isNotNegative();
 
-		nextRefillAt = getRefillAt(refillsElapsed + 1);
+		nextRefillAt = getRefillEndTime(refillsElapsed + 1);
 
 		availableTokens = saturatedAdd(availableTokens, tokensToAdd);
 		overflowBucket();
 	}
 
 	/**
-	 * @param refills the desired number of refills
-	 * @return the time at which the desired number of refills will take place
+	 * @param refills a number of refills relative to the beginning of the current period
+	 * @return the time at which the last refill will complete
 	 */
-	private Instant getRefillAt(long refills)
+	Instant getRefillEndTime(long refills)
 	{
-		Duration timeElapsedInPeriod = timePerRefill.multipliedBy(tokensAddedInCurrentPeriod / tokensPerPeriod);
-		Instant result = this.startOfCurrentPeriod.plus(timeElapsedInPeriod);
+		Instant result = this.startOfCurrentPeriod;
 		long numberOfPeriodsElapsed = refills / refillsPerPeriod;
 		if (numberOfPeriodsElapsed > 0)
 		{
@@ -318,14 +302,8 @@ public final class Limit
 			result = result.plus(period.multipliedBy(numberOfPeriodsElapsed));
 		}
 
-		long refillsLeftInPeriod = refillsPerPeriod - refillsElapsed;
-		if (refills > refillsLeftInPeriod)
-		{
-			refills -= refillsLeftInPeriod;
-			result = result.plus(timePerRefill.multipliedBy(refillsLeftInPeriod));
-		}
-		Duration timeAddedInPeriod = timePerRefill.multipliedBy(refills);
-		return result.plus(timeAddedInPeriod);
+		Duration timeElapsedInPeriod = timePerRefill.multipliedBy(refills);
+		return result.plus(timeElapsedInPeriod);
 	}
 
 	/**
@@ -340,7 +318,7 @@ public final class Limit
 	 * Consumes tokens.
 	 *
 	 * @param tokens the number of tokens
-	 * @return the number of tokens available after consumption
+	 * @return the number of tokens left after consumption
 	 * @throws IllegalArgumentException if {@code tokens > availableTokens}
 	 */
 	long consume(long tokens)
@@ -382,7 +360,7 @@ public final class Limit
 	 * @throws IllegalArgumentException if the limit has a {@code maximumTokens} that is less than
 	 *                                  {@code minimumTokens}
 	 */
-	ConsumptionSimulation simulateConsumption(long minimumTokens, long maximumTokens, Instant consumedAt)
+	SimulatedConsumption simulateConsumption(long minimumTokens, long maximumTokens, Instant consumedAt)
 	{
 		if (assertionsAreEnabled())
 		{
@@ -396,7 +374,10 @@ public final class Limit
 		{
 			long tokensNeeded = minimumTokens - availableTokens;
 			long refillsNeeded = (long) Math.ceil((double) tokensNeeded / refillSize);
-			availableAt = getRefillAt(refillsElapsed + refillsNeeded);
+			if (refillsNeeded == 1)
+				availableAt = nextRefillAt;
+			else
+				availableAt = getRefillEndTime(refillsElapsed + refillsNeeded);
 			tokensConsumed = 0;
 		}
 		else
@@ -405,7 +386,7 @@ public final class Limit
 			tokensConsumed = Math.min(maximumTokens, availableTokens);
 			assertThat(tokensConsumed, "tokensConsumed()").isPositive();
 		}
-		return new ConsumptionSimulation(tokensConsumed, consumedAt, availableAt);
+		return new SimulatedConsumption(tokensConsumed, consumedAt, availableAt);
 	}
 
 	/**
@@ -443,16 +424,22 @@ public final class Limit
 		try (CloseableLock ignored = lock.readLock())
 		{
 			ToStringBuilder builder = new ToStringBuilder(Limit.class).
-				add("availableTokens", availableTokens).
 				add("tokensPerPeriod", tokensPerPeriod).
 				add("period", period).
 				add("maximumTokens", maximumTokens).
 				add("refillSize", refillSize).
-				add("refillsElapsed", refillsElapsed).
-				add("nextRefillAt", nextRefillAt).
-				add("initialTokens", initialTokens);
-			if (userDataInToString)
-				builder.add("userData", userData);
+				add("userData", userData);
+			if (log.isDebugEnabled())
+				builder.
+					add("initialTokens", initialTokens).
+					add("startOfCurrentPeriod", startOfCurrentPeriod).
+					add("nextRefillAt", nextRefillAt).
+					add("tokensAddedInCurrentPeriod", tokensAddedInCurrentPeriod).
+					add("availableTokens", availableTokens).
+					add("refillsElapsed", refillsElapsed).
+					add("timePerToken", timePerToken).
+					add("timePerRefill", timePerRefill).
+					add("refillsPerPeriod", refillsPerPeriod);
 			return builder.toString();
 		}
 	}
@@ -460,7 +447,7 @@ public final class Limit
 	/**
 	 * The result of a simulated token consumption.
 	 */
-	static final class ConsumptionSimulation
+	static final class SimulatedConsumption
 	{
 		private final long tokensConsumed;
 		private final Instant consumedAt;
@@ -476,7 +463,7 @@ public final class Limit
 		 * @throws IllegalArgumentException if {@code tokensConsumed} is negative.
 		 *                                  If {@code consumedAt > availableAt}.
 		 */
-		ConsumptionSimulation(long tokensConsumed, Instant consumedAt, Instant availableAt)
+		SimulatedConsumption(long tokensConsumed, Instant consumedAt, Instant availableAt)
 		{
 			if (assertionsAreEnabled())
 			{
@@ -519,16 +506,6 @@ public final class Limit
 			return availableAt;
 		}
 
-		/**
-		 * Returns the amount of time until the requested number of tokens will become available.
-		 *
-		 * @return the amount of time until the requested number of tokens will become available
-		 */
-		public Duration getAvailableIn()
-		{
-			return Duration.between(consumedAt, availableAt);
-		}
-
 		@Override
 		public String toString()
 		{
@@ -553,7 +530,6 @@ public final class Limit
 		private long maximumTokens = Long.MAX_VALUE;
 		private long refillSize = 1;
 		private Object userData;
-		private boolean userDataInToString;
 
 		/**
 		 * Adds a limit that the bucket must respect.
@@ -566,7 +542,6 @@ public final class Limit
 		 * <li>{@code maximumTokens} is {@code Long.MAX_VALUE}.</li>
 		 * <li>{@code refillSize} is 1.</li>
 		 * <li>{@code userData} is {@code null}.</li>
-		 * <li>{@code userDataInToString} is {@code false}.</li>
 		 * </ul>
 		 *
 		 * @param consumer consumes the bucket before it is returned to the user
@@ -695,7 +670,7 @@ public final class Limit
 		 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
 		 * <p>
 		 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
-		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
+		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod} due to rounding errors.
 		 * <p>
 		 * The default is {@code 1}.
 		 *
@@ -714,7 +689,7 @@ public final class Limit
 		 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
 		 * <p>
 		 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
-		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
+		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod} due to rounding errors.
 		 *
 		 * @param refillSize the minimum number of tokens by which the limit may be refilled
 		 * @return this
@@ -753,37 +728,13 @@ public final class Limit
 		}
 
 		/**
-		 * Indicates if {@code userData} should be included in {@link #toString()}.
-		 *
-		 * @return true if {@code userData} should be included in {@link #toString()}
-		 */
-		@CheckReturnValue
-		public boolean userDataInToString()
-		{
-			return userDataInToString;
-		}
-
-		/**
-		 * Indicates if {@code userData} should be included in {@link #toString()}.
-		 *
-		 * @param userDataInToString the data associated with this limit
-		 * @return this
-		 */
-		public Builder userDataInString(boolean userDataInToString)
-		{
-			this.userDataInToString = userDataInToString;
-			return this;
-		}
-
-		/**
 		 * Builds a new Limit.
 		 *
 		 * @return a new Limit
 		 */
 		public Limit build()
 		{
-			Limit limit = new Limit(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize, userData,
-				userDataInToString);
+			Limit limit = new Limit(tokensPerPeriod, period, initialTokens, maximumTokens, refillSize, userData);
 			consumer.accept(limit);
 			return limit;
 		}
@@ -795,9 +746,8 @@ public final class Limit
 				add("tokensPerPeriod", tokensPerPeriod).
 				add("period", period).
 				add("refillSize", refillSize).
-				add("maximumTokens", maximumTokens);
-			if (userDataInToString)
-				builder.add("userData", userData);
+				add("maximumTokens", maximumTokens).
+				add("userData", userData);
 			return builder.
 				toString();
 		}
@@ -818,7 +768,6 @@ public final class Limit
 		private long refillSize;
 		private long maximumTokens;
 		private Object userData;
-		private boolean userDataInToString;
 		private boolean changed;
 
 		/**
@@ -832,7 +781,6 @@ public final class Limit
 			this.refillSize = Limit.this.refillSize;
 			this.maximumTokens = Limit.this.maximumTokens;
 			this.userData = Limit.this.userData;
-			this.userDataInToString = Limit.this.userDataInToString;
 		}
 
 		/**
@@ -938,7 +886,7 @@ public final class Limit
 		 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
 		 * <p>
 		 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
-		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
+		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod} due to rounding errors.
 		 *
 		 * @return the minimum number of tokens by which the limit may be refilled
 		 * @throws IllegalStateException if the updater is closed
@@ -957,7 +905,7 @@ public final class Limit
 		 * On the other spectrum, one may refill {@code tokensPerPeriod} tokens once per {@code period}.
 		 * <p>
 		 * <b>NOTE</b>: When completing a {@code period} a smaller number of tokens may be refilled in order to
-		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod}.
+		 * avoid surpassing {@link #getTokensPerPeriod() tokensPerPeriod} due to rounding errors.
 		 *
 		 * @param refillSize the minimum number of tokens by which the limit may be refilled
 		 * @return this
@@ -1040,36 +988,6 @@ public final class Limit
 		}
 
 		/**
-		 * Indicates if {@code userData} should be included in {@link #toString()}.
-		 *
-		 * @return true if {@code userData} should be included in {@link #toString()}
-		 * @throws IllegalStateException if the updater is closed
-		 */
-		@CheckReturnValue
-		public boolean userDataInToString()
-		{
-			ensureOpen();
-			return userDataInToString;
-		}
-
-		/**
-		 * Indicates if {@code userData} should be included in {@link #toString()}.
-		 *
-		 * @param userDataInToString the data associated with this limit
-		 * @return this
-		 * @throws IllegalStateException if the updater is closed
-		 */
-		public ConfigurationUpdater userDataInString(boolean userDataInToString)
-		{
-			ensureOpen();
-			if (userDataInToString == this.userDataInToString)
-				return this;
-			changed = true;
-			this.userDataInToString = userDataInToString;
-			return this;
-		}
-
-		/**
 		 * @throws IllegalStateException if the updater is closed
 		 */
 		private void ensureOpen()
@@ -1094,20 +1012,21 @@ public final class Limit
 				if (!changed)
 					return;
 				log.debug("Before updating limit: {}", Limit.this);
-				long availableTokens = this.availableTokens;
+
 				Limit.this.tokensPerPeriod = tokensPerPeriod;
-				if (Limit.this.tokensAddedInCurrentPeriod > Limit.this.tokensPerPeriod)
-					Limit.this.tokensAddedInCurrentPeriod = 0;
 				Limit.this.period = period;
-				// Do not change initialTokens
+				// availableTokens takes the place of initialTokens (which would be meaningless to update)
+				Limit.this.availableTokens = availableTokens;
 				Limit.this.maximumTokens = maximumTokens;
 				Limit.this.refillSize = refillSize;
 				Limit.this.userData = userData;
-				Limit.this.userDataInToString = userDataInToString;
-				Limit.this.availableTokens = availableTokens;
+				Limit.this.startOfCurrentPeriod = Instant.now();
+				Limit.this.tokensAddedInCurrentPeriod = 0;
+				Limit.this.refillsElapsed = 0;
 				Limit.this.timePerToken = period.dividedBy(tokensPerPeriod);
 				Limit.this.timePerRefill = timePerToken.multipliedBy(refillSize);
-				Limit.this.nextRefillAt = Limit.this.startOfCurrentPeriod;
+				Limit.this.refillsPerPeriod = (long) Math.ceil((double) tokensPerPeriod / refillSize);
+				Limit.this.nextRefillAt = getRefillEndTime(1);
 				overflowBucket();
 				log.debug("After updating limit: {}", Limit.this);
 			}
@@ -1124,10 +1043,9 @@ public final class Limit
 				add("tokensPerPeriod", tokensPerPeriod).
 				add("period", period).
 				add("availableTokens", availableTokens).
+				add("maximumTokens", maximumTokens).
 				add("refillSize", refillSize).
-				add("maximumTokens", maximumTokens);
-			if (userDataInToString)
-				builder.add("userData", userData);
+				add("userData", userData);
 			return builder.add("changed", changed).
 				toString();
 		}

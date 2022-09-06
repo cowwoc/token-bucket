@@ -1,7 +1,6 @@
 package com.github.cowwoc.tokenbucket;
 
 import com.github.cowwoc.requirements.Requirements;
-import com.github.cowwoc.tokenbucket.ContainerList.ConfigurationUpdater;
 import com.github.cowwoc.tokenbucket.Limit.Builder;
 import org.testng.annotations.Test;
 
@@ -498,36 +497,5 @@ public final class ContainerListTest
 		ignored = containerList.consume();
 		// index = 2
 		ignored = containerList.consume();
-	}
-
-	@Test
-	public void userDataInToString()
-	{
-		ContainerList containerList = ContainerList.builder().
-			consumeFromOne(SelectionPolicy.ROUND_ROBIN).
-			addBucket(bucket ->
-				bucket.addLimit(limit ->
-						limit.initialTokens(5).
-							userData("firstLimit").
-							build()).
-					userData("firstBucket").
-					build()).
-			addBucket(bucket ->
-				bucket.addLimit(limit ->
-						limit.initialTokens(10).
-							userData("secondLimit").
-							build()).
-					userData("secondBucket").
-					build()).
-			build();
-		requireThat(containerList.toString(), "containerList.toString()").doesNotContain("userData");
-
-		try (ConfigurationUpdater update = containerList.updateConfiguration())
-		{
-			requireThat(update.toString(), "update.toString()").doesNotContain("userData");
-			update.userDataInString(true);
-			requireThat(update.toString(), "update.toString()").contains("userData");
-		}
-		requireThat(containerList.toString(), "containerList.toString()").contains("userData");
 	}
 }

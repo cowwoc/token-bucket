@@ -1,22 +1,21 @@
-Minor updates involving cosmetic changes have been omitted from this list.
+Minor or cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
-## Version 5.2 - 2022/09/02
+## Version 5.2 - ???
 
 * Bug fixes
     * Threads were not sleeping if the duration was less than 1 second.
-    * Refill wasn't working properly if maxTokens was not a multiple of refillSize.
-    * `ConfigurationUpdater` now updates the refill size.
+    * Refill wasn't working properly unless maxTokens was a multiple of refillSize.
+    * `ConfigurationUpdater` wasn't updating all the necessary fields on `close()`.
 * Improvements
     * Replaced all references to @CheckReturnValue from 3rd-party dependency with local class.
-    * Added ability to remove `userData` from output of `toString()` because it can be very noisy. See
-      `Builder.userDataInToString()`.
     * Removed `@CheckReturnValue` from `Container.consume()` and `consume(tokens)` because the number of
       tokens that are consumed is known in advance.
-    * Added toString() to all Builder/ConfigurationUpdater classes.
-        * Added ConfigurationUpdater.toString().
-        * Performance improvement: Group 3+ assertions behind assertionsAreEnabled() to reduce garbage
-          creation.
+    * Added `toString()` to all `Builder`/`ConfigurationUpdater` classes.
+        * Added `ConfigurationUpdater.toString()`.
+        * Performance improvement: Group 3+ assertions behind `assertionsAreEnabled()` to reduce object
+          allocation.
+    * Added `ConsumptionResult.getTokensLeft()`.
 
 ## Version 5.1 - 2022/08/22
 

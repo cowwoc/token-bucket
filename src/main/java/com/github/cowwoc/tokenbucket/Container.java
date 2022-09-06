@@ -25,14 +25,6 @@ public interface Container
 	Object getUserData();
 
 	/**
-	 * Indicates if {@code userData} is included in {@code toString()}.
-	 *
-	 * @return true if {@code userData} is included in {@code toString()}
-	 * @throws IllegalStateException if the updater is closed
-	 */
-	boolean isUserDataInToString();
-
-	/**
 	 * Consumes a single token, only if one is available at the time of invocation. Consumption order is not
 	 * guaranteed to be fair.
 	 *

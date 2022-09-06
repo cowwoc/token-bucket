@@ -32,26 +32,6 @@ public final class LimitTest
 	}
 
 	@Test
-	public void userDataInToString()
-	{
-		Bucket bucket = Bucket.builder().
-			addLimit(limit -> limit.userData("limit").build()).
-			build();
-		List<Limit> limits = bucket.getLimits();
-		requireThat(limits, "limits").size().isEqualTo(1);
-		Limit limit = limits.iterator().next();
-		requireThat(limit.toString(), "limit.toString()").doesNotContain("userData");
-
-		try (ConfigurationUpdater update = limit.updateConfiguration())
-		{
-			requireThat(update.toString(), "update.toString()").doesNotContain("userData");
-			update.userDataInString(true);
-			requireThat(update.toString(), "update.toString()").contains("userData");
-		}
-		requireThat(limit.toString(), "limit.toString()").contains("userData");
-	}
-
-	@Test
 	public void roundingError()
 	{
 		int tokens = 9;
@@ -124,7 +104,7 @@ public final class LimitTest
 		Bucket bucket = Bucket.builder().
 			addLimit(limit -> limit.
 				tokensPerPeriod(60).
-				period(Duration.ofMinutes(1)).
+				period(Duration.ofSeconds(60)).
 				maximumTokens(120).
 				refillSize(10).
 				build()).
@@ -132,21 +112,53 @@ public final class LimitTest
 		List<Limit> limits = bucket.getLimits();
 		requireThat(limits, "limits").size().isEqualTo(1);
 		Limit limit = limits.iterator().next();
-		limit.refill(limit.startOfCurrentPeriod.plusSeconds(30));
-		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(30L);
-		limit.consume(30);
-		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(0L);
+		Instant consumedAt = limit.startOfCurrentPeriod.plusSeconds(30);
+		ConsumptionResult consumptionResult = bucket.tryConsume(consumedAt, 30);
+		requireThat(consumptionResult.getTokensLeft(), "consumptionResult.getTokensLeft()").isEqualTo(0L);
 
 		try (ConfigurationUpdater update = limit.updateConfiguration())
 		{
 			update.refillSize(20);
 		}
-		limit.refill(limit.startOfCurrentPeriod.plusSeconds(30));
-		// Already received 30 tokens in current period based on old refillSize but per the new refillSize we
-		// should have only received 20 tokens, so no new tokens are added.
 		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(0L);
-		limit.refill(limit.startOfCurrentPeriod.plusSeconds(40));
-		// We received 30 tokens in the past, but we are owed 40 per the new refillSize
-		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(10L);
+		limit.refill(limit.startOfCurrentPeriod.plusSeconds(30));
+		requireThat(limit.availableTokens, "limit.availableTokens").isEqualTo(20L);
+	}
+
+	/**
+	 * Ensure that modifying the configuration updates refillsPerPeriod.
+	 */
+	@Test
+	public void refillsPerPeriodNotUpdated()
+	{
+		Bucket bucket = Bucket.builder().
+			addLimit(limit -> limit.
+				tokensPerPeriod(120).
+				period(Duration.ofMinutes(1)).
+				maximumTokens(120).
+				refillSize(60).
+				build()).
+			build();
+		List<Limit> limits = bucket.getLimits();
+		requireThat(limits, "limits").size().isEqualTo(1);
+		Limit limit = limits.iterator().next();
+		ConsumptionResult result = bucket.tryConsume(limit.startOfCurrentPeriod, 1);
+		requireThat(result.isSuccessful(), "result.isSuccessful()").isFalse();
+		requireThat(result.getTokensLeft(), "result.getTokensLeft()").isEqualTo(0L);
+
+		result = bucket.tryConsume(result.getConsumeAt(), 60);
+		requireThat(result.getTokensLeft(), "result.getTokensLeft()").isEqualTo(0L);
+
+		try (ConfigurationUpdater update = limit.updateConfiguration())
+		{
+			update.refillSize(1);
+		}
+
+		result = bucket.tryConsume(result.getConsumeAt(), 30);
+		Instant availableAt = result.getAvailableAt();
+		limit.refill(availableAt);
+		result = bucket.tryConsume(availableAt, 30);
+
+		requireThat(result.getTokensLeft(), "result.getTokensLeft()").isEqualTo(0L);
 	}
 }

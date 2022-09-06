@@ -79,25 +79,33 @@ public final class ContainerList extends AbstractContainer
 				isLessThanOrEqualTo(containerList.getMaximumTokens(), "containerList.getMaximumTokens()");
 
 			long tokensToConsume = maximumTokens;
+			long tokensLeft = Long.MAX_VALUE;
 			for (AbstractContainer child : children)
-				tokensToConsume = Math.min(tokensToConsume, CONTAINER_SECRETS.getAvailableTokens(child));
+			{
+				long availableTokens = CONTAINER_SECRETS.getAvailableTokens(child);
+				tokensToConsume = Math.min(tokensToConsume, availableTokens);
+				tokensLeft = Math.min(tokensLeft, availableTokens);
+			}
 			if (tokensToConsume < minimumTokens)
 			{
 				List<Limit> bottlenecks = new ArrayList<>();
 				for (AbstractContainer child : children)
 					bottlenecks.addAll(CONTAINER_SECRETS.getLimitsWithInsufficientTokens(child, minimumTokens));
 				return new ConsumptionResult(containerList, minimumTokens, maximumTokens, 0,
-					requestedAt, consumedAt, consumedAt, bottlenecks);
+					requestedAt, consumedAt, consumedAt, tokensLeft, bottlenecks);
 			}
 
 			for (AbstractContainer bucket : children)
 			{
 				ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(bucket, tokensToConsume,
 					tokensToConsume, nameOfMinimumTokens, requestedAt, consumedAt);
-				assertThat(consumptionResult.isSuccessful(), "consumptionResult").isTrue();
+				assertThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
+				assertThat(consumptionResult.getTokensConsumed(), "consumptionResult.getTokensConsumed()").
+					isEqualTo(tokensToConsume, "tokensToConsume");
 			}
+			tokensLeft -= tokensToConsume;
 			return new ConsumptionResult(containerList, minimumTokens, maximumTokens, tokensToConsume,
-				requestedAt, consumedAt, consumedAt, List.of());
+				requestedAt, consumedAt, consumedAt, tokensLeft, List.of());
 		};
 
 	/**
@@ -125,7 +133,6 @@ public final class ContainerList extends AbstractContainer
 	 * @param listeners           the event listeners associated with this list
 	 * @param children            the children in this list
 	 * @param userData            the data associated with this list
-	 * @param userDataInToString  true if the value of {@code userData} should be in {@link #toString()}
 	 * @param lock                the lock over the list's state
 	 * @param consumptionPolicy   indicates how tokens are consumed
 	 * @param consumptionFunction indicates how tokens are consumed
@@ -136,11 +143,10 @@ public final class ContainerList extends AbstractContainer
 	 * @throws IllegalArgumentException if {@code children} are empty
 	 */
 	private ContainerList(List<ContainerListener> listeners, List<AbstractContainer> children, Object userData,
-	                      boolean userDataInToString, ReadWriteLockAsResource lock,
-	                      ConsumptionPolicy consumptionPolicy, ConsumptionFunction consumptionFunction,
-	                      SelectionPolicy selectionPolicy)
+	                      ReadWriteLockAsResource lock, ConsumptionPolicy consumptionPolicy,
+	                      ConsumptionFunction consumptionFunction, SelectionPolicy selectionPolicy)
 	{
-		super(listeners, userData, userDataInToString, consumptionFunction, lock);
+		super(listeners, userData, consumptionFunction, lock);
 		assertThat(children, "children").isNotEmpty();
 		assertThat(consumptionPolicy, "consumptionPolicy").isNotNull();
 		this.children = List.copyOf(children);
@@ -213,12 +219,10 @@ public final class ContainerList extends AbstractContainer
 	{
 		try (CloseableLock ignored = lock.readLock())
 		{
-			ToStringBuilder builder = new ToStringBuilder(ContainerList.class).
+			return new ToStringBuilder(ContainerList.class).
 				add("consumptionPolicy", consumptionPolicy).
-				add("children", children);
-			if (userDataInToString)
-				builder.add("userData", userData);
-			return builder.
+				add("children", children).
+				add("userData", userData).
 				toString();
 		}
 	}
@@ -247,7 +251,6 @@ public final class ContainerList extends AbstractContainer
 		private final List<ContainerListener> listeners = new ArrayList<>();
 		private final List<AbstractContainer> children = new ArrayList<>();
 		private Object userData;
-		private boolean userDataInToString;
 		private final ReadWriteLockAsResource lock;
 		private final Consumer<ContainerList> consumer;
 		private ConsumptionPolicy consumptionPolicy;
@@ -404,29 +407,6 @@ public final class ContainerList extends AbstractContainer
 		}
 
 		/**
-		 * Indicates if {@code userData} should be included in {@link #toString()}.
-		 *
-		 * @return true if {@code userData} should be included in {@link #toString()}
-		 */
-		@CheckReturnValue
-		public boolean userDataInToString()
-		{
-			return userDataInToString;
-		}
-
-		/**
-		 * Indicates if {@code userData} should be included in {@link #toString()}.
-		 *
-		 * @param userDataInToString the data associated with this limit
-		 * @return this
-		 */
-		public Builder userDataInString(boolean userDataInToString)
-		{
-			this.userDataInToString = userDataInToString;
-			return this;
-		}
-
-		/**
 		 * Builds a new ContainerList.
 		 *
 		 * @return a new ContainerList
@@ -434,7 +414,7 @@ public final class ContainerList extends AbstractContainer
 		 */
 		public ContainerList build()
 		{
-			ContainerList containerList = new ContainerList(listeners, children, userData, userDataInToString, lock,
+			ContainerList containerList = new ContainerList(listeners, children, userData, lock,
 				consumptionPolicy, consumptionFunction, selectionPolicy);
 			consumer.accept(containerList);
 			return containerList;
@@ -446,9 +426,8 @@ public final class ContainerList extends AbstractContainer
 			ToStringBuilder builder = new ToStringBuilder(Builder.class).
 				add("consumptionPolicy", consumptionPolicy).
 				add("selectionPolicy", selectionPolicy).
-				add("children", children);
-			if (userDataInToString)
-				builder.add("userData", userData);
+				add("children", children).
+				add("userData", userData);
 			return builder.
 				toString();
 		}
@@ -470,7 +449,6 @@ public final class ContainerList extends AbstractContainer
 		private final List<AbstractContainer> children;
 		private final Consumer<AbstractContainer> addChild;
 		private Object userData;
-		private boolean userDataInToString;
 		private boolean wakeConsumers;
 		private boolean changed;
 
@@ -482,7 +460,6 @@ public final class ContainerList extends AbstractContainer
 			this.listeners = new ArrayList<>(ContainerList.this.listeners);
 			this.children = new ArrayList<>(ContainerList.this.children);
 			this.userData = ContainerList.this.userData;
-			this.userDataInToString = ContainerList.this.userDataInToString;
 			this.consumptionFunction = ContainerList.this.consumptionFunction;
 			this.consumptionPolicy = ContainerList.this.consumptionPolicy;
 			this.selectionPolicy = ContainerList.this.selectionPolicy;
@@ -662,36 +639,6 @@ public final class ContainerList extends AbstractContainer
 		}
 
 		/**
-		 * Indicates if {@code userData} should be included in {@link #toString()}.
-		 *
-		 * @return true if {@code userData} should be included in {@link #toString()}
-		 * @throws IllegalStateException if the updater is closed
-		 */
-		@CheckReturnValue
-		public boolean userDataInToString()
-		{
-			ensureOpen();
-			return userDataInToString;
-		}
-
-		/**
-		 * Indicates if {@code userData} should be included in {@link #toString()}.
-		 *
-		 * @param userDataInToString the data associated with this limit
-		 * @return this
-		 * @throws IllegalStateException if the updater is closed
-		 */
-		public ConfigurationUpdater userDataInString(boolean userDataInToString)
-		{
-			ensureOpen();
-			if (userDataInToString == this.userDataInToString)
-				return this;
-			changed = true;
-			this.userDataInToString = userDataInToString;
-			return this;
-		}
-
-		/**
 		 * @throws IllegalStateException if the updater is closed
 		 */
 		private void ensureOpen()
@@ -725,7 +672,6 @@ public final class ContainerList extends AbstractContainer
 				ContainerList.this.consumptionFunction = consumptionFunction;
 				ContainerList.this.selectionPolicy = selectionPolicy;
 				ContainerList.this.userData = userData;
-				ContainerList.this.userDataInToString = userDataInToString;
 				if (wakeConsumers)
 					tokensUpdated.signalAll();
 			}
@@ -738,13 +684,11 @@ public final class ContainerList extends AbstractContainer
 		@Override
 		public String toString()
 		{
-			ToStringBuilder builder = new ToStringBuilder(ConfigurationUpdater.class).
+			return new ToStringBuilder(ConfigurationUpdater.class).
 				add("consumptionPolicy", consumptionPolicy).
 				add("selectionPolicy", selectionPolicy).
-				add("children", children);
-			if (userDataInToString)
-				builder.add("userData", userData);
-			return builder.
+				add("children", children).
+				add("userData", userData).
 				add("changed", changed).
 				toString();
 		}
