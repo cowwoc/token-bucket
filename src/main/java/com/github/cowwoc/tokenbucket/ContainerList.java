@@ -34,26 +34,29 @@ public final class ContainerList extends AbstractContainer
 			(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt, abstractBucket) ->
 			{
 				ContainerList containerList = (ContainerList) abstractBucket;
-				AbstractContainer firstBucket = null;
+				AbstractContainer firstContainer = null;
 				ConsumptionResult earliestConsumption = null;
 				List<AbstractContainer> children = containerList.children;
-				assertThat(children, "children").isNotEmpty();
+				assertThat(r -> r.requireThat(children, "children").isNotEmpty());
 
 				while (true)
 				{
 					AbstractContainer container = selectionPolicy.nextContainer(children);
-					if (container == firstBucket)
+					if (container == firstContainer)
 					{
 						if (earliestConsumption == null)
 						{
-							requireThat(minimumTokens, nameOfMinimumTokens).
-								isLessThanOrEqualTo(containerList.getMaximumTokens(), "containerList.getMaximumTokens()");
-							throw new AssertionError("requireThat() should have failed");
+							long containerMaximumTokens = containerList.getMaximumTokens();
+							throw new IllegalArgumentException("The maximum number of tokens that the container could " +
+								"ever contain (containerMaximumTokens) is less than the minimum number of tokens that were " +
+								"requested (minimumTokensRequested).\n" +
+								"minimumTokensRequested: " + minimumTokens + "\n" +
+								"containerMaximumTokens: " + containerMaximumTokens);
 						}
 						return earliestConsumption;
 					}
-					if (firstBucket == null)
-						firstBucket = container;
+					if (firstContainer == null)
+						firstContainer = container;
 
 					long containerMaximumTokens = CONTAINER_SECRETS.getMaximumTokens(container);
 					if (containerMaximumTokens < minimumTokens)
@@ -74,7 +77,7 @@ public final class ContainerList extends AbstractContainer
 		{
 			ContainerList containerList = (ContainerList) abstractBucket;
 			List<AbstractContainer> children = containerList.children;
-			assertThat(children, "children").isNotEmpty();
+			assertThat(r -> r.requireThat(children, "children").isNotEmpty());
 			requireThat(minimumTokens, nameOfMinimumTokens).
 				isLessThanOrEqualTo(containerList.getMaximumTokens(), "containerList.getMaximumTokens()");
 
@@ -99,9 +102,13 @@ public final class ContainerList extends AbstractContainer
 			{
 				ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(bucket, tokensToConsume,
 					tokensToConsume, nameOfMinimumTokens, requestedAt, consumedAt);
-				assertThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
-				assertThat(consumptionResult.getTokensConsumed(), "consumptionResult.getTokensConsumed()").
-					isEqualTo(tokensToConsume, "tokensToConsume");
+				long finalTokensToConsume = tokensToConsume;
+				assertThat(r ->
+				{
+					r.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
+					r.requireThat(consumptionResult.getTokensConsumed(),
+						"consumptionResult.getTokensConsumed()").isEqualTo(finalTokensToConsume, "tokensToConsume");
+				});
 			}
 			tokensLeft -= tokensToConsume;
 			return new ConsumptionResult(containerList, minimumTokens, maximumTokens, tokensToConsume,
@@ -147,8 +154,11 @@ public final class ContainerList extends AbstractContainer
 	                      ConsumptionFunction consumptionFunction, SelectionPolicy selectionPolicy)
 	{
 		super(listeners, userData, consumptionFunction, lock);
-		assertThat(children, "children").isNotEmpty();
-		assertThat(consumptionPolicy, "consumptionPolicy").isNotNull();
+		assertThat(r ->
+		{
+			r.requireThat(children, "children").isNotEmpty();
+			r.requireThat(consumptionPolicy, "consumptionPolicy").isNotNull();
+		});
 		this.children = List.copyOf(children);
 		this.consumptionPolicy = consumptionPolicy;
 		this.selectionPolicy = selectionPolicy;
@@ -269,8 +279,11 @@ public final class ContainerList extends AbstractContainer
 		 */
 		private Builder(ReadWriteLockAsResource lock, Consumer<ContainerList> consumer)
 		{
-			assertThat(lock, "lock").isNotNull();
-			assertThat(consumer, "consumer").isNotNull();
+			assertThat(r ->
+			{
+				r.requireThat(lock, "lock").isNotNull();
+				r.requireThat(consumer, "consumer").isNotNull();
+			});
 			this.lock = lock;
 			this.consumer = consumer;
 			consumeFromOne(SelectionPolicy.ROUND_ROBIN);

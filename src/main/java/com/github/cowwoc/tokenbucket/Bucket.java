@@ -56,7 +56,7 @@ public final class Bucket extends AbstractContainer
 	               ReadWriteLockAsResource lock)
 	{
 		super(listeners, userData, Bucket::tryConsume, lock);
-		assertThat(limits, "limits").isNotEmpty();
+		assertThat(r -> r.requireThat(limits, "limits").isNotEmpty());
 		this.limits = List.copyOf(limits);
 	}
 
@@ -327,8 +327,11 @@ public final class Bucket extends AbstractContainer
 		 */
 		Builder(ReadWriteLockAsResource lock, Consumer<Bucket> consumer)
 		{
-			assertThat(lock, "lock").isNotNull();
-			assertThat(consumer, "consumer").isNotNull();
+			assertThat(r ->
+			{
+				r.requireThat(lock, "lock").isNotNull();
+				r.requireThat(consumer, "consumer").isNotNull();
+			});
 			this.lock = lock;
 			this.consumer = consumer;
 		}

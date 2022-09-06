@@ -29,7 +29,7 @@ public enum SelectionPolicy
 					@Override
 					public AbstractContainer nextContainer(List<AbstractContainer> containers)
 					{
-						assertThat(containers, "containers").isNotEmpty();
+						assertThat(r -> r.requireThat(containers, "containers").isNotEmpty());
 						// Wrap around end of list
 						index = (index + 1) % containers.size();
 						return containers.get(index);

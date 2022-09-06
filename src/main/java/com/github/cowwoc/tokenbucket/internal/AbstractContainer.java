@@ -305,10 +305,9 @@ public abstract class AbstractContainer implements Container
 	 * @param timeout       returns true if a timeout occurs
 	 * @return the result of the operation
 	 * @throws NullPointerException     if any of the arguments are null
-	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If {@code tokens} or
-	 *                                  {@code timeout} are negative or zero. If one of the bucket limits has
-	 *                                  a {@code maximumTokens} that is less than {@code tokens}. If
-	 *                                  {@code consumedAt < requestedAt}.
+	 * @throws IllegalArgumentException if {@code minimumTokens > maximumTokens}. If one of the limits has a
+	 *                                  {@link Limit#getMaximumTokens() maximumTokens} that is less than
+	 *                                  {@code minimumTokens}. If {@code requestedAt > consumedAt}
 	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
 	 *                                  available
 	 */
@@ -317,15 +316,19 @@ public abstract class AbstractContainer implements Container
 	                                  Instant requestedAt, Function<ConsumptionResult, Boolean> timeout)
 		throws InterruptedException
 	{
-		assertThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
-		assertThat(requestedAt, "requestedAt").isNotNull();
+		assertThat(r ->
+		{
+			r.requireThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
+			r.requireThat(requestedAt, "requestedAt").isNotNull();
+		});
 		Logger log = getLogger();
 		try (CloseableLock ignored = lock.writeLock())
 		{
 			while (true)
 			{
 				Instant consumedAt = Instant.now();
-				assertThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+				assertThat(r -> r.requireThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt,
+					"requestedAt"));
 				ConsumptionResult consumptionResult = consumptionFunction.tryConsume(minimumTokens, maximumTokens,
 					nameOfMinimumTokens, requestedAt, consumedAt, this);
 				if (consumptionResult.isSuccessful() || timeout.apply(consumptionResult))

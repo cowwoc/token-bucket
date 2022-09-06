@@ -1,6 +1,7 @@
 package com.github.cowwoc.tokenbucket.internal;
 
 import com.github.cowwoc.tokenbucket.ConsumptionResult;
+import com.github.cowwoc.tokenbucket.Limit;
 import com.github.cowwoc.tokenbucket.annotation.CheckReturnValue;
 
 import java.time.Instant;
@@ -23,8 +24,8 @@ public interface ConsumptionFunction
 	 * @return the result of the operation
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code minimumTokens > maximumTokens}. If one of the limits has a
-	 *                                  {@code maximumTokens} that is less than {@code minimumTokensRequested}.
-	 *                                  If {@code requestedAt > consumedAt}
+	 *                                  {@link Limit#getMaximumTokens() maximumTokens} that is less than
+	 *                                  {@code minimumTokens}. If {@code requestedAt > consumedAt}
 	 */
 	@CheckReturnValue
 	ConsumptionResult tryConsume(long minimumTokens, long maximumTokens, String nameOfMinimumTokens,
