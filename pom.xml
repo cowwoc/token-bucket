@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.github.cowwoc.token-bucket</groupId>
 	<artifactId>token-bucket</artifactId>
-	<version>5.3-SNAPSHOT</version>
+	<version>6.0-SNAPSHOT</version>
 	<packaging>jar</packaging>
 	<name>Token-Bucket</name>
 	<description>A Java implementation of the Token Bucket algorithm</description>
@@ -51,7 +51,7 @@
 		<maven-source-plugin.version>3.2.1</maven-source-plugin.version>
 		<maven-javadoc-plugin.version>3.4.1</maven-javadoc-plugin.version>
 		<maven-gpg-plugin.version>3.0.1</maven-gpg-plugin.version>
-		<requirements.version>7.0.5-SNAPSHOT</requirements.version>
+		<requirements.version>8.0.0-SNAPSHOT</requirements.version>
 	</properties>
 
 	<dependencies>

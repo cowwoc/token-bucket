@@ -51,7 +51,7 @@ public interface Container
 	 * time. Consumption order is not guaranteed to be fair.
 	 *
 	 * @param tokens  the number of tokens to consume
-	 * @param timeout the maximum amount of time to wait
+	 * @param timeout the maximum number of time to wait
 	 * @param unit    the unit of {@code timeout}
 	 * @return the result of the operation
 	 * @throws NullPointerException     if {@code unit} is null

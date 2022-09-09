@@ -17,6 +17,7 @@ public interface ContainerSecrets
 	 *
 	 * @param container the container
 	 * @return the number of tokens that are available
+	 * @implNote This method acquires its own locks
 	 */
 	long getAvailableTokens(AbstractContainer container);
 
@@ -26,6 +27,7 @@ public interface ContainerSecrets
 	 * @param container the container
 	 * @param tokens    the minimum number of tokens to consume
 	 * @return the list of limits with less than the specified number of tokens
+	 * @implNote This method acquires its own locks
 	 */
 	List<Limit> getLimitsWithInsufficientTokens(AbstractContainer container, long tokens);
 
@@ -34,6 +36,7 @@ public interface ContainerSecrets
 	 *
 	 * @param container the container
 	 * @return the maximum number of tokens that this container can ever hold
+	 * @implNote This method acquires its own locks
 	 */
 	long getMaximumTokens(AbstractContainer container);
 
@@ -51,9 +54,22 @@ public interface ContainerSecrets
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If
 	 *                                  {@code minimumTokens > maximumTokens}. If one of the limits has a
-	 *                                  {@code maximumTokens} that is less than {@code minimumTokens}.
+	 *                                  {@code maximumTokens} that is less than {@code minimumTokens}. If
+	 *                                  {@code requestedAt > consumedAt}.
+	 * @implNote This method acquires its own locks. Callers are responsible for validating all parameters.
 	 */
 	@CheckReturnValue
 	ConsumptionResult tryConsume(AbstractContainer container, long minimumTokens, long maximumTokens,
 	                             String nameOfMinimumTokens, Instant requestedAt, Instant consumedAt);
+
+	/**
+	 * Sets the parent of a container.
+	 *
+	 * @param child  the child container
+	 * @param parent the parent container ({@code null} if the child has no parent)
+	 * @throws NullPointerException     if {@code child} is null
+	 * @throws IllegalArgumentException if setting the parent would introduce a loop in the hierarchy
+	 * @implNote This method acquires its own locks
+	 */
+	void setParent(AbstractContainer child, AbstractContainer parent);
 }

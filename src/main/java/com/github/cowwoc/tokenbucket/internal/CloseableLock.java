@@ -1,7 +1,7 @@
 package com.github.cowwoc.tokenbucket.internal;
 
 /**
- * Informs the compilers that releasing a lock does not throw any exceptions.
+ * Let the compiler know that releasing a lock does not throw any exceptions.
  */
 public interface CloseableLock extends AutoCloseable
 {

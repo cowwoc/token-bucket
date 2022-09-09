@@ -113,7 +113,7 @@ public final class LimitTest
 		requireThat(limits, "limits").size().isEqualTo(1);
 		Limit limit = limits.iterator().next();
 		Instant consumedAt = limit.startOfCurrentPeriod.plusSeconds(30);
-		ConsumptionResult consumptionResult = bucket.tryConsume(consumedAt, 30);
+		ConsumptionResult consumptionResult = bucket.tryConsume(30, consumedAt);
 		requireThat(consumptionResult.getTokensLeft(), "consumptionResult.getTokensLeft()").isEqualTo(0L);
 
 		try (ConfigurationUpdater update = limit.updateConfiguration())
@@ -142,11 +142,11 @@ public final class LimitTest
 		List<Limit> limits = bucket.getLimits();
 		requireThat(limits, "limits").size().isEqualTo(1);
 		Limit limit = limits.iterator().next();
-		ConsumptionResult result = bucket.tryConsume(limit.startOfCurrentPeriod, 1);
+		ConsumptionResult result = bucket.tryConsume(1, limit.startOfCurrentPeriod);
 		requireThat(result.isSuccessful(), "result.isSuccessful()").isFalse();
 		requireThat(result.getTokensLeft(), "result.getTokensLeft()").isEqualTo(0L);
 
-		result = bucket.tryConsume(result.getConsumeAt(), 60);
+		result = bucket.tryConsume(60, result.getConsumeAt());
 		requireThat(result.getTokensLeft(), "result.getTokensLeft()").isEqualTo(0L);
 
 		try (ConfigurationUpdater update = limit.updateConfiguration())
@@ -154,10 +154,10 @@ public final class LimitTest
 			update.refillSize(1);
 		}
 
-		result = bucket.tryConsume(result.getConsumeAt(), 30);
+		result = bucket.tryConsume(30, result.getConsumeAt());
 		Instant availableAt = result.getAvailableAt();
 		limit.refill(availableAt);
-		result = bucket.tryConsume(availableAt, 30);
+		result = bucket.tryConsume(30, availableAt);
 
 		requireThat(result.getTokensLeft(), "result.getTokensLeft()").isEqualTo(0L);
 	}

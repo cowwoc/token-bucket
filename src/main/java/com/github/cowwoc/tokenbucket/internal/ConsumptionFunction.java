@@ -7,7 +7,7 @@ import com.github.cowwoc.tokenbucket.annotation.CheckReturnValue;
 import java.time.Instant;
 
 /**
- * Consumes tokens from a bucket.
+ * Consumes tokens from a container.
  */
 public interface ConsumptionFunction
 {
@@ -20,14 +20,15 @@ public interface ConsumptionFunction
 	 * @param nameOfMinimumTokens the name of the {@code minimumTokens} parameter
 	 * @param requestedAt         the time at which the tokens were requested
 	 * @param consumedAt          the time at which an attempt was made to consume tokens
-	 * @param bucket              the enclosing bucket
+	 * @param container           the enclosing container
 	 * @return the result of the operation
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code minimumTokens > maximumTokens}. If one of the limits has a
 	 *                                  {@link Limit#getMaximumTokens() maximumTokens} that is less than
-	 *                                  {@code minimumTokens}. If {@code requestedAt > consumedAt}
+	 *                                  {@code minimumTokens}. If {@code requestedAt > consumedAt}.
+	 * @implNote This method acquires its own locks. Callers are responsible for validating all parameters.
 	 */
 	@CheckReturnValue
 	ConsumptionResult tryConsume(long minimumTokens, long maximumTokens, String nameOfMinimumTokens,
-	                             Instant requestedAt, Instant consumedAt, AbstractContainer bucket);
+	                             Instant requestedAt, Instant consumedAt, AbstractContainer container);
 }

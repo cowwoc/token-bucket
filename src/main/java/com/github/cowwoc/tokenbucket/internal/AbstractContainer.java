@@ -12,8 +12,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.StampedLock;
 import java.util.function.Function;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
@@ -32,19 +30,19 @@ public abstract class AbstractContainer implements Container
 			@Override
 			public long getAvailableTokens(AbstractContainer container)
 			{
-				return container.getAvailableTokens();
+				return container.lock.optimisticReadLock(container::getAvailableTokens);
 			}
 
 			@Override
 			public List<Limit> getLimitsWithInsufficientTokens(AbstractContainer container, long tokens)
 			{
-				return container.getLimitsWithInsufficientTokens(tokens);
+				return container.lock.optimisticReadLock(() -> container.getLimitsWithInsufficientTokens(tokens));
 			}
 
 			@Override
 			public long getMaximumTokens(AbstractContainer container)
 			{
-				return container.getMaximumTokens();
+				return container.lock.optimisticReadLock(container::getMaximumTokens);
 			}
 
 			@Override
@@ -53,6 +51,31 @@ public abstract class AbstractContainer implements Container
 			{
 				return container.consumptionFunction.tryConsume(minimumTokens, maximumTokens, nameOfMinimumTokens,
 					requestedAt, consumedAt, container);
+			}
+
+			@Override
+			public void setParent(AbstractContainer child, AbstractContainer parent)
+			{
+				requireThat(child, "child").isNotNull();
+				if (parent != null)
+				{
+					AbstractContainer current = parent;
+					do
+					{
+						if (current == child)
+						{
+							throw new IllegalArgumentException("\"child\" is already part of the hierarchy. Adding " +
+								"\"parent\" would introduce a loop.");
+						}
+						AbstractContainer finalCurrent = current;
+						current = current.lock.optimisticReadLock(() -> finalCurrent.parent);
+					}
+					while (current != null);
+				}
+				try (CloseableLock ignored = child.lock.writeLock())
+				{
+					child.parent = parent;
+				}
 			}
 		};
 	}
@@ -84,84 +107,59 @@ public abstract class AbstractContainer implements Container
 	 */
 	protected abstract Logger getLogger();
 
-	protected List<ContainerListener> listeners;
-	/**
-	 * Returns the lock over the bucket's state.
-	 * <p>
-	 * Locking policy:
-	 * <p>
-	 * <ul>
-	 *   <li>public methods acquire locks.</li>
-	 *   <li>non-public methods assume that the caller already acquired a lock.</li>
-	 *   <li>{@link StampedLock} is better than {@link ReadWriteLock} in almost every way, but does not provide
-	 *   {@link Condition} variables so we did not use it. See the following
-	 *   <a href="https://vimeo.com/74553130">video</a> and
-	 * 	 <a href="https://www.javaspecialists.eu/talks/jfokus13/PhaserAndStampedLock.pdf">article</a></li>
-	 * </ul>
-	 */
-	protected final ReadWriteLockAsResource lock;
-	protected ConsumptionFunction consumptionFunction;
-	/**
-	 * A Condition that is signaled when the number of tokens has changed
-	 */
-	protected final Condition tokensUpdated;
 	/**
 	 * The parent container. {@code null} if there is no parent.
 	 */
 	protected AbstractContainer parent;
+	protected List<ContainerListener> listeners;
+	protected ConsumptionFunction consumptionFunction;
 	protected Object userData;
+	/**
+	 * A lock over this object's state. See the {@link com.github.cowwoc.tokenbucket.internal locking policy}
+	 * for more details.
+	 */
+	protected final ReentrantStampedLock lock = new ReentrantStampedLock();
+	/**
+	 * A lock used to signal/await {@code Condition} variables.
+	 */
+	protected final ReadWriteLockAsResource conditionLock = new ReadWriteLockAsResource();
+	/**
+	 * Notifies consumers that the number of tokens may have been changed as the result of a configuration
+	 * update.
+	 */
+	protected final Condition tokensUpdated = conditionLock.newCondition();
 
 	/**
-	 * Creates a new AbstractBucket.
+	 * Creates a new AbstractContainer.
 	 *
 	 * @param listeners           the event listeners associated with this container
 	 * @param userData            the data associated with this container
 	 * @param consumptionFunction indicates how tokens are consumed
-	 * @param lock                the lock over the bucket's state
 	 * @throws NullPointerException if {@code listeners}, {@code lock} or {@code consumptionFunction} are null
 	 */
 	protected AbstractContainer(List<ContainerListener> listeners, Object userData,
-	                            ConsumptionFunction consumptionFunction, ReadWriteLockAsResource lock)
+	                            ConsumptionFunction consumptionFunction)
 	{
 		if (assertionsAreEnabled())
 		{
 			requireThat(listeners, "listeners").isNotNull();
 			requireThat(consumptionFunction, "consumptionFunction").isNotNull();
-			requireThat(lock, "lock").isNotNull();
 		}
 		this.listeners = List.copyOf(listeners);
 		this.userData = userData;
-		this.lock = lock;
 		this.consumptionFunction = consumptionFunction;
-		this.tokensUpdated = lock.newCondition();
-	}
-
-	/**
-	 * Returns the parent container.
-	 *
-	 * @return null if this is the highest-level container
-	 */
-	public Container getParent()
-	{
-		try (CloseableLock ignored = lock.readLock())
-		{
-			return parent;
-		}
 	}
 
 	@Override
 	public List<ContainerListener> getListeners()
 	{
-		try (CloseableLock ignored = lock.readLock())
-		{
-			return listeners;
-		}
+		return lock.optimisticReadLock(() -> listeners);
 	}
 
 	@Override
 	public Object getUserData()
 	{
-		return userData;
+		return lock.optimisticReadLock(() -> userData);
 	}
 
 	@Override
@@ -169,28 +167,21 @@ public abstract class AbstractContainer implements Container
 	public ConsumptionResult tryConsume()
 	{
 		Instant requestedAt = Instant.now();
-		try (CloseableLock ignored = lock.writeLock())
-		{
-			Instant consumedAt = Instant.now();
-			return consumptionFunction.tryConsume(1, 1, "tokensToConsume", requestedAt, consumedAt, this);
-		}
+		return consumptionFunction.tryConsume(1, 1, "tokensToConsume", requestedAt, requestedAt, this);
 	}
 
 	/**
 	 * This method is only meant to be used by tests. It is equivalent to invoking {@link #tryConsume()} with
-	 * the specified {@code consumedAt} value.
+	 * the specified {@code requestedAt} value.
 	 *
-	 * @param consumedAt the time at which the tokens are being consumed
+	 * @param requestedAt the time at which the tokens were requested
 	 * @return the result of the operation
+	 * @throws NullPointerException if {@code requestedAt} is null
 	 */
 	@CheckReturnValue
-	protected ConsumptionResult tryConsume(Instant consumedAt)
+	protected ConsumptionResult tryConsume(Instant requestedAt)
 	{
-		Instant requestedAt = Instant.now();
-		try (CloseableLock ignored = lock.writeLock())
-		{
-			return consumptionFunction.tryConsume(1, 1, "tokensToConsume", requestedAt, consumedAt, this);
-		}
+		return consumptionFunction.tryConsume(1, 1, "tokensToConsume", requestedAt, requestedAt, this);
 	}
 
 	@Override
@@ -199,30 +190,24 @@ public abstract class AbstractContainer implements Container
 	{
 		requireThat(tokens, "tokens").isPositive();
 		Instant requestedAt = Instant.now();
-		try (CloseableLock ignored = lock.writeLock())
-		{
-			Instant consumedAt = Instant.now();
-			return consumptionFunction.tryConsume(tokens, tokens, "tokens", requestedAt, consumedAt, this);
-		}
+		return consumptionFunction.tryConsume(tokens, tokens, "tokens", requestedAt, requestedAt, this);
 	}
 
 	/**
 	 * This method is only meant to be used by tests. It is equivalent to invoking {@link #tryConsume()} with
-	 * the specified {@code consumedAt} value.
+	 * the specified {@code requestedAt} value.
 	 *
-	 * @param consumedAt the time at which the tokens are being consumed
-	 * @param tokens     the number of tokens to consume
+	 * @param tokens      the number of tokens to consume
+	 * @param requestedAt the time at which the tokens were requested
 	 * @return the result of the operation
+	 * @throws IllegalArgumentException if {@code tokens} is negative or zero. If
+	 *                                  {@code requestedAt > consumedAt}.
 	 */
 	@CheckReturnValue
-	protected ConsumptionResult tryConsume(Instant consumedAt, long tokens)
+	protected ConsumptionResult tryConsume(long tokens, Instant requestedAt)
 	{
-		//noinspection UnnecessaryLocalVariable
-		Instant requestedAt = consumedAt;
-		try (CloseableLock ignored = lock.writeLock())
-		{
-			return consumptionFunction.tryConsume(tokens, tokens, "tokensToConsume", requestedAt, consumedAt, this);
-		}
+		requireThat(tokens, "tokens").isPositive();
+		return consumptionFunction.tryConsume(tokens, tokens, "tokensToConsume", requestedAt, requestedAt, this);
 	}
 
 	@Override
@@ -246,12 +231,8 @@ public abstract class AbstractContainer implements Container
 		requireThat(maximumTokens, "maximumTokens").isPositive().
 			isGreaterThanOrEqualTo(minimumTokens, "minimumTokens");
 		Instant requestedAt = Instant.now();
-		try (CloseableLock ignored = lock.writeLock())
-		{
-			Instant consumedAt = Instant.now();
-			return consumptionFunction.tryConsume(minimumTokens, maximumTokens, "minimumTokens", requestedAt,
-				consumedAt, this);
-		}
+		return consumptionFunction.tryConsume(minimumTokens, maximumTokens, "minimumTokens", requestedAt,
+			requestedAt, this);
 	}
 
 	@Override
@@ -307,9 +288,10 @@ public abstract class AbstractContainer implements Container
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code minimumTokens > maximumTokens}. If one of the limits has a
 	 *                                  {@link Limit#getMaximumTokens() maximumTokens} that is less than
-	 *                                  {@code minimumTokens}. If {@code requestedAt > consumedAt}
+	 *                                  {@code minimumTokens}.
 	 * @throws InterruptedException     if the thread is interrupted while waiting for tokens to become
 	 *                                  available
+	 * @implNote This method acquires its own locks
 	 */
 	@CheckReturnValue
 	private ConsumptionResult consume(long minimumTokens, long maximumTokens, String nameOfMinimumTokens,
@@ -322,29 +304,26 @@ public abstract class AbstractContainer implements Container
 			r.requireThat(requestedAt, "requestedAt").isNotNull();
 		});
 		Logger log = getLogger();
-		try (CloseableLock ignored = lock.writeLock())
+		while (true)
 		{
-			while (true)
+			Instant consumedAt = Instant.now();
+			ConsumptionResult consumptionResult = consumptionFunction.tryConsume(minimumTokens, maximumTokens,
+				nameOfMinimumTokens, requestedAt, consumedAt, this);
+			if (consumptionResult.isSuccessful() || timeout.apply(consumptionResult))
 			{
-				Instant consumedAt = Instant.now();
-				assertThat(r -> r.requireThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt,
-					"requestedAt"));
-				ConsumptionResult consumptionResult = consumptionFunction.tryConsume(minimumTokens, maximumTokens,
-					nameOfMinimumTokens, requestedAt, consumedAt, this);
-				if (consumptionResult.isSuccessful() || timeout.apply(consumptionResult))
-				{
-					log.debug("consumptionResult: {}", consumptionResult);
-					return consumptionResult;
-				}
 				log.debug("consumptionResult: {}", consumptionResult);
-				Duration timeLeft = consumptionResult.getAvailableIn();
-				log.debug("Sleeping {}", timeLeft);
-				log.debug("State before sleep: {}", this);
-				beforeSleep(this, minimumTokens, requestedAt, consumptionResult.getAvailableAt(),
-					consumptionResult.getBottlenecks());
-				Conditions.await(tokensUpdated, timeLeft);
-				log.debug("State after sleep: {}", this);
+				return consumptionResult;
 			}
+			log.debug("consumptionResult: {}", consumptionResult);
+			Duration timeLeft = consumptionResult.getAvailableIn();
+			log.debug("Sleeping {}. State before sleep: {}", timeLeft, this);
+			beforeSleep(this, minimumTokens, requestedAt, consumptionResult.getAvailableAt(),
+				consumptionResult.getBottlenecks());
+			try (CloseableLock ignored = conditionLock.writeLock())
+			{
+				Conditions.await(tokensUpdated, timeLeft);
+			}
+			log.debug("State after sleep: {}", this);
 		}
 	}
 
@@ -363,7 +342,7 @@ public abstract class AbstractContainer implements Container
 	{
 		if (parent != null)
 			parent.beforeSleep(container, tokens, requestedAt, availableAt, bottleneck);
-		for (ContainerListener listener : listeners)
+		for (ContainerListener listener : lock.optimisticReadLock(() -> listeners))
 			listener.beforeSleep(container, tokens, requestedAt, availableAt, bottleneck);
 	}
 }

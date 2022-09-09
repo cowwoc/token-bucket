@@ -4,7 +4,6 @@ import com.github.cowwoc.tokenbucket.Limit.SimulatedConsumption;
 import com.github.cowwoc.tokenbucket.annotation.CheckReturnValue;
 import com.github.cowwoc.tokenbucket.internal.AbstractContainer;
 import com.github.cowwoc.tokenbucket.internal.CloseableLock;
-import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
 import com.github.cowwoc.tokenbucket.internal.ToStringBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,10 +13,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
-import static com.github.cowwoc.requirements.DefaultRequirements.assertionsAreEnabled;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
@@ -37,9 +35,7 @@ public final class Bucket extends AbstractContainer
 	 */
 	public static Builder builder()
 	{
-		return new Builder(new ReadWriteLockAsResource(), bucket ->
-		{
-		});
+		return new Builder();
 	}
 
 	/**
@@ -48,14 +44,12 @@ public final class Bucket extends AbstractContainer
 	 * @param limits    the limits associated with this bucket
 	 * @param listeners the event listeners associated with this bucket
 	 * @param userData  the data associated with this bucket
-	 * @param lock      the lock over the bucket's state
 	 * @throws NullPointerException     if {@code limits}, {@code listeners} or {@code lock} are null
 	 * @throws IllegalArgumentException if {@code limits} is empty
 	 */
-	private Bucket(List<Limit> limits, List<ContainerListener> listeners, Object userData,
-	               ReadWriteLockAsResource lock)
+	private Bucket(List<Limit> limits, List<ContainerListener> listeners, Object userData)
 	{
-		super(listeners, userData, Bucket::tryConsume, lock);
+		super(listeners, userData, Bucket::tryConsume);
 		assertThat(r -> r.requireThat(limits, "limits").isNotEmpty());
 		this.limits = List.copyOf(limits);
 	}
@@ -101,20 +95,18 @@ public final class Bucket extends AbstractContainer
 	 */
 	public List<Limit> getLimits()
 	{
-		try (CloseableLock ignored = lock.readLock())
-		{
-			return limits;
-		}
+		return lock.optimisticReadLock(() -> limits);
 	}
 
 	/**
-	 * Returns the limit with the lowest refill rate.
+	 * Returns the limit with the lowest refill rate. Note that this differs from the concept of
+	 * {@code refillSize} as the former corresponds to the number of tokens refilled per fixed period of time.
 	 *
 	 * @return the limit with the lowest refill rate
 	 */
 	public Limit getLimitWithLowestRefillRate()
 	{
-		try (CloseableLock ignored = lock.readLock())
+		return lock.optimisticReadLock(() ->
 		{
 			Limit result = limits.get(0);
 			double minimumTokensPerSecond = (double) result.getTokensPerPeriod() / result.getPeriod().toSeconds();
@@ -129,7 +121,7 @@ public final class Bucket extends AbstractContainer
 				}
 			}
 			return result;
-		}
+		});
 	}
 
 	/**
@@ -141,25 +133,26 @@ public final class Bucket extends AbstractContainer
 	 * @param nameOfMinimumTokens the name of the {@code minimumTokens} parameter
 	 * @param requestedAt         the time at which the tokens were requested
 	 * @param consumedAt          the time at which an attempt was made to consume tokens
-	 * @param abstractBucket      the container
+	 * @param abstractContainer   the container
 	 * @return the result of the operation
 	 * @throws NullPointerException     if any of the arguments are null
 	 * @throws IllegalArgumentException if {@code nameOfMinimumTokens} is empty. If
 	 *                                  {@code minimumTokens > maximumTokens}. If one of the limits has a
-	 *                                  {@code maximumTokens} that is less than {@code minimumTokens}.
+	 *                                  {@code maximumTokens} that is less than {@code minimumTokens}. If
+	 *                                  {@code requestedAt > consumedAt}.
 	 */
 	private static ConsumptionResult tryConsume(long minimumTokens, long maximumTokens,
 	                                            String nameOfMinimumTokens, Instant requestedAt,
-	                                            Instant consumedAt, AbstractContainer abstractBucket)
+	                                            Instant consumedAt, AbstractContainer abstractContainer)
 	{
-		if (assertionsAreEnabled())
+		assertThat(r ->
 		{
-			requireThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
-			requireThat(requestedAt, "requestedAt").isNotNull();
-			requireThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
-		}
+			r.requireThat(nameOfMinimumTokens, "nameOfMinimumTokens").isNotEmpty();
+			r.requireThat(requestedAt, "requestedAt").isNotNull();
+			r.requireThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+		});
 
-		Bucket bucket = (Bucket) abstractBucket;
+		Bucket bucket = (Bucket) abstractContainer;
 		List<Limit> limits = bucket.getLimits();
 		for (Limit limit : limits)
 		{
@@ -187,12 +180,21 @@ public final class Bucket extends AbstractContainer
 			long minimumTokensLeft = Long.MAX_VALUE;
 			for (Limit limit : limits)
 			{
-				long tokensLeft = limit.consume(tokensConsumed);
+				long tokensLeft;
+				try (CloseableLock ignored = limit.lock.writeLock())
+				{
+					tokensLeft = limit.consume(tokensConsumed);
+				}
 				if (tokensLeft < minimumTokensLeft)
 					minimumTokensLeft = tokensLeft;
 			}
 			if (minimumTokensLeft > 0)
-				bucket.tokensUpdated.signalAll();
+			{
+				try (CloseableLock ignored = bucket.conditionLock.writeLock())
+				{
+					bucket.tokensUpdated.signalAll();
+				}
+			}
 			return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
 				consumedAt, consumedAt, minimumTokensLeft, List.of());
 		}
@@ -204,8 +206,7 @@ public final class Bucket extends AbstractContainer
 	/**
 	 * Updates this Bucket's configuration.
 	 * <p>
-	 * The Bucket and any attached Limits, Containers will be locked until
-	 * {@link ConfigurationUpdater#close()} is invoked.
+	 * The {@code Bucket} will be locked until {@link ConfigurationUpdater#close()} is invoked.
 	 *
 	 * @return the configuration updater
 	 */
@@ -236,9 +237,9 @@ public final class Bucket extends AbstractContainer
 	}
 
 	@CheckReturnValue
-	protected ConsumptionResult tryConsume(Instant consumedAt)
+	protected ConsumptionResult tryConsume(Instant requestedAt)
 	{
-		return super.tryConsume(consumedAt);
+		return super.tryConsume(requestedAt);
 	}
 
 	@Override
@@ -249,9 +250,9 @@ public final class Bucket extends AbstractContainer
 	}
 
 	@CheckReturnValue
-	protected ConsumptionResult tryConsume(Instant consumedAt, long tokens)
+	protected ConsumptionResult tryConsume(long tokens, Instant consumedAt)
 	{
-		return super.tryConsume(consumedAt, tokens);
+		return super.tryConsume(tokens, consumedAt);
 	}
 
 	@Override
@@ -298,13 +299,11 @@ public final class Bucket extends AbstractContainer
 	@Override
 	public String toString()
 	{
-		try (CloseableLock ignored = lock.readLock())
-		{
-			return new ToStringBuilder(Bucket.class).
+		return lock.optimisticReadLock(() ->
+			new ToStringBuilder(Bucket.class).
 				add("limits", limits).
 				add("userData", userData).
-				toString();
-		}
+				toString());
 	}
 
 	/**
@@ -312,29 +311,9 @@ public final class Bucket extends AbstractContainer
 	 */
 	public static final class Builder
 	{
-		private final ReadWriteLockAsResource lock;
-		private final Consumer<Bucket> consumer;
 		private final List<Limit> limits = new ArrayList<>();
 		private final List<ContainerListener> listeners = new ArrayList<>();
 		private Object userData;
-
-		/**
-		 * Builds a bucket.
-		 *
-		 * @param lock     the lock over the bucket's state
-		 * @param consumer consumes the bucket before it is returned to the user
-		 * @throws NullPointerException if any of the arguments are null
-		 */
-		Builder(ReadWriteLockAsResource lock, Consumer<Bucket> consumer)
-		{
-			assertThat(r ->
-			{
-				r.requireThat(lock, "lock").isNotNull();
-				r.requireThat(consumer, "consumer").isNotNull();
-			});
-			this.lock = lock;
-			this.consumer = consumer;
-		}
 
 		/**
 		 * Returns the limits that the bucket must respect.
@@ -355,10 +334,11 @@ public final class Bucket extends AbstractContainer
 		 * @throws NullPointerException if any of the arguments are null
 		 */
 		@CheckReturnValue
-		public Builder addLimit(Consumer<Limit.Builder> limitBuilder)
+		public Builder addLimit(Function<Limit.Builder, Limit> limitBuilder)
 		{
 			requireThat(limitBuilder, "limitBuilder").isNotNull();
-			limitBuilder.accept(new Limit.Builder(limits::add));
+			Limit limit = limitBuilder.apply(new Limit.Builder());
+			limits.add(limit);
 			return this;
 		}
 
@@ -417,18 +397,10 @@ public final class Bucket extends AbstractContainer
 		 */
 		public Bucket build()
 		{
-			// Locking because of https://stackoverflow.com/a/41990379/14731
-			try (CloseableLock ignored = lock.writeLock())
-			{
-				Bucket bucket = new Bucket(limits, listeners, userData, lock);
-				for (Limit limit : limits)
-				{
-					limit.bucket = bucket;
-					limit.lock = bucket.lock;
-				}
-				consumer.accept(bucket);
-				return bucket;
-			}
+			Bucket bucket = new Bucket(limits, listeners, userData);
+			for (Limit limit : limits)
+				limit.bucket = bucket;
+			return bucket;
 		}
 
 		@Override
@@ -444,7 +416,7 @@ public final class Bucket extends AbstractContainer
 	/**
 	 * Updates this Bucket's configuration.
 	 * <p>
-	 * <b>Thread-safety</b>: This class is not thread-safe.
+	 * <b>Thread-safety</b>: This class is <b>not</b> thread-safe.
 	 */
 	public final class ConfigurationUpdater implements AutoCloseable
 	{
@@ -487,17 +459,15 @@ public final class Bucket extends AbstractContainer
 		 * @throws NullPointerException  if {@code limit} is null
 		 * @throws IllegalStateException if the updater is closed
 		 */
-		public ConfigurationUpdater addLimit(Consumer<Limit.Builder> limitBuilder)
+		public ConfigurationUpdater addLimit(Function<Limit.Builder, Limit> limitBuilder)
 		{
 			requireThat(limitBuilder, "limitBuilder").isNotNull();
 			ensureOpen();
 			// Adding a limit causes consumers to have to wait the same amount of time, or longer. No need to
 			// wake sleeping consumers.
-			limitBuilder.accept(new Limit.Builder(e ->
-			{
-				limits.add(e);
-				changed = true;
-			}));
+			Limit limit = limitBuilder.apply(new Limit.Builder());
+			limits.add(limit);
+			changed = true;
 			return this;
 		}
 
@@ -632,12 +602,17 @@ public final class Bucket extends AbstractContainer
 				Bucket.this.limits = List.copyOf(limits);
 				Bucket.this.listeners = List.copyOf(listeners);
 				Bucket.this.userData = userData;
-				if (wakeConsumers)
-					tokensUpdated.signalAll();
 			}
 			finally
 			{
 				writeLock.close();
+			}
+			if (wakeConsumers)
+			{
+				try (CloseableLock ignored = conditionLock.writeLock())
+				{
+					tokensUpdated.signalAll();
+				}
 			}
 		}
 

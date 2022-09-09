@@ -6,7 +6,6 @@ import com.github.cowwoc.tokenbucket.internal.CloseableLock;
 import com.github.cowwoc.tokenbucket.internal.ConsumptionFunction;
 import com.github.cowwoc.tokenbucket.internal.ContainerSecrets;
 import com.github.cowwoc.tokenbucket.internal.ContainerSelector;
-import com.github.cowwoc.tokenbucket.internal.ReadWriteLockAsResource;
 import com.github.cowwoc.tokenbucket.internal.SharedSecrets;
 import com.github.cowwoc.tokenbucket.internal.ToStringBuilder;
 import org.slf4j.Logger;
@@ -15,7 +14,6 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
@@ -25,22 +23,26 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
  * A container of one or more children containers.
  * <p>
  * For example, this allows to consume tokens from a list of buckets.
+ * <p>
+ * <b>Thread safety</b>: This class is thread-safe.
  */
 public final class ContainerList extends AbstractContainer
 {
 	private static final ContainerSecrets CONTAINER_SECRETS = SharedSecrets.INSTANCE.containerSecrets;
 	private static final Function<ContainerSelector, ConsumptionFunction> CONSUME_FROM_ONE_POLICY =
 		selectionPolicy ->
-			(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt, abstractBucket) ->
+			(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt, abstractContainer) ->
 			{
-				ContainerList containerList = (ContainerList) abstractBucket;
+				ContainerList containerList = (ContainerList) abstractContainer;
 				AbstractContainer firstContainer = null;
 				ConsumptionResult earliestConsumption = null;
-				List<AbstractContainer> children = containerList.children;
-				assertThat(r -> r.requireThat(children, "children").isNotEmpty());
 
 				while (true)
 				{
+					@SuppressWarnings("unchecked")
+					List<AbstractContainer> children = (List<AbstractContainer>) (List<?>) containerList.getChildren();
+					assertThat(r -> r.requireThat(children, "children").isNotEmpty());
+
 					AbstractContainer container = selectionPolicy.nextContainer(children);
 					if (container == firstContainer)
 					{
@@ -76,7 +78,8 @@ public final class ContainerList extends AbstractContainer
 		(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt, abstractBucket) ->
 		{
 			ContainerList containerList = (ContainerList) abstractBucket;
-			List<AbstractContainer> children = containerList.children;
+			@SuppressWarnings("unchecked")
+			List<AbstractContainer> children = (List<AbstractContainer>) (List<?>) containerList.getChildren();
 			assertThat(r -> r.requireThat(children, "children").isNotEmpty());
 			requireThat(minimumTokens, nameOfMinimumTokens).
 				isLessThanOrEqualTo(containerList.getMaximumTokens(), "containerList.getMaximumTokens()");
@@ -98,9 +101,10 @@ public final class ContainerList extends AbstractContainer
 					requestedAt, consumedAt, consumedAt, tokensLeft, bottlenecks);
 			}
 
-			for (AbstractContainer bucket : children)
+			for (AbstractContainer container : children)
 			{
-				ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(bucket, tokensToConsume,
+				// Consume an equal number of tokens across all containers, even if some have more available.
+				ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(container, tokensToConsume,
 					tokensToConsume, nameOfMinimumTokens, requestedAt, consumedAt);
 				long finalTokensToConsume = tokensToConsume;
 				assertThat(r ->
@@ -124,9 +128,7 @@ public final class ContainerList extends AbstractContainer
 	 */
 	public static Builder builder()
 	{
-		return new Builder(new ReadWriteLockAsResource(), list ->
-		{
-		});
+		return new Builder();
 	}
 
 	List<AbstractContainer> children;
@@ -140,7 +142,6 @@ public final class ContainerList extends AbstractContainer
 	 * @param listeners           the event listeners associated with this list
 	 * @param children            the children in this list
 	 * @param userData            the data associated with this list
-	 * @param lock                the lock over the list's state
 	 * @param consumptionPolicy   indicates how tokens are consumed
 	 * @param consumptionFunction indicates how tokens are consumed
 	 * @param selectionPolicy     the {@link SelectionPolicy} used by the {@code consumptionPolicy}
@@ -150,10 +151,10 @@ public final class ContainerList extends AbstractContainer
 	 * @throws IllegalArgumentException if {@code children} are empty
 	 */
 	private ContainerList(List<ContainerListener> listeners, List<AbstractContainer> children, Object userData,
-	                      ReadWriteLockAsResource lock, ConsumptionPolicy consumptionPolicy,
-	                      ConsumptionFunction consumptionFunction, SelectionPolicy selectionPolicy)
+	                      ConsumptionPolicy consumptionPolicy, ConsumptionFunction consumptionFunction,
+	                      SelectionPolicy selectionPolicy)
 	{
-		super(listeners, userData, consumptionFunction, lock);
+		super(listeners, userData, consumptionFunction);
 		assertThat(r ->
 		{
 			r.requireThat(children, "children").isNotEmpty();
@@ -177,13 +178,13 @@ public final class ContainerList extends AbstractContainer
 	 */
 	public List<Container> getChildren()
 	{
-		try (CloseableLock ignored = lock.readLock())
+		return lock.optimisticReadLock(() ->
 		{
 			// This is safe because the list is unmodifiable
 			@SuppressWarnings("unchecked")
 			List<Container> children = (List<Container>) (List<?>) this.children;
 			return children;
-		}
+		});
 	}
 
 	@Override
@@ -218,32 +219,24 @@ public final class ContainerList extends AbstractContainer
 	 */
 	public int size()
 	{
-		try (CloseableLock ignored = lock.readLock())
-		{
-			return children.size();
-		}
+		return lock.optimisticReadLock(() -> children.size());
 	}
 
 	@Override
 	public String toString()
 	{
-		try (CloseableLock ignored = lock.readLock())
-		{
-			return new ToStringBuilder(ContainerList.class).
+		return lock.optimisticReadLock(() ->
+			new ToStringBuilder(ContainerList.class).
 				add("consumptionPolicy", consumptionPolicy).
 				add("children", children).
 				add("userData", userData).
-				toString();
-		}
+				toString());
 	}
 
 	/**
 	 * Updates this list's configuration.
 	 * <p>
-	 * The ContainerList and any attached Limits, Containers will be locked until
-	 * {@link ConfigurationUpdater#close()} is invoked.
-	 * <p>
-	 * A new period is started immediately after the update takes place.
+	 * The {@code ContainerList} will be locked until {@link ConfigurationUpdater#close()} is invoked.
 	 *
 	 * @return the configuration updater
 	 */
@@ -261,8 +254,6 @@ public final class ContainerList extends AbstractContainer
 		private final List<ContainerListener> listeners = new ArrayList<>();
 		private final List<AbstractContainer> children = new ArrayList<>();
 		private Object userData;
-		private final ReadWriteLockAsResource lock;
-		private final Consumer<ContainerList> consumer;
 		private ConsumptionPolicy consumptionPolicy;
 		private ConsumptionFunction consumptionFunction;
 		private SelectionPolicy selectionPolicy;
@@ -272,20 +263,9 @@ public final class ContainerList extends AbstractContainer
 		 * <p>
 		 * By default, the list will delegate to the first child that has sufficient number of tokens available,
 		 * using the round-robin scheduling policy.
-		 *
-		 * @param lock     the lock over the bucket's state
-		 * @param consumer consumes the ContainerList before it is returned to the user
-		 * @throws NullPointerException if any of the arguments are null
 		 */
-		private Builder(ReadWriteLockAsResource lock, Consumer<ContainerList> consumer)
+		private Builder()
 		{
-			assertThat(r ->
-			{
-				r.requireThat(lock, "lock").isNotNull();
-				r.requireThat(consumer, "consumer").isNotNull();
-			});
-			this.lock = lock;
-			this.consumer = consumer;
 			consumeFromOne(SelectionPolicy.ROUND_ROBIN);
 		}
 
@@ -371,10 +351,11 @@ public final class ContainerList extends AbstractContainer
 		 * @throws NullPointerException if {@code bucketBuilder} is null
 		 */
 		@CheckReturnValue
-		public Builder addBucket(Consumer<Bucket.Builder> bucketBuilder)
+		public Builder addBucket(Function<Bucket.Builder, Bucket> bucketBuilder)
 		{
 			requireThat(bucketBuilder, "bucketBuilder").isNotNull();
-			bucketBuilder.accept(new Bucket.Builder(lock, children::add));
+			Bucket child = bucketBuilder.apply(Bucket.builder());
+			children.add(child);
 			return this;
 		}
 
@@ -386,10 +367,11 @@ public final class ContainerList extends AbstractContainer
 		 * @throws NullPointerException if {@code listBuilder} is null
 		 */
 		@CheckReturnValue
-		public Builder addContainerList(Consumer<Builder> listBuilder)
+		public Builder addContainerList(Function<ContainerList.Builder, ContainerList> listBuilder)
 		{
 			requireThat(listBuilder, "listBuilder").isNotNull();
-			listBuilder.accept(new Builder(lock, children::add));
+			ContainerList child = listBuilder.apply(ContainerList.builder());
+			children.add(child);
 			return this;
 		}
 
@@ -427,21 +409,21 @@ public final class ContainerList extends AbstractContainer
 		 */
 		public ContainerList build()
 		{
-			ContainerList containerList = new ContainerList(listeners, children, userData, lock,
-				consumptionPolicy, consumptionFunction, selectionPolicy);
-			consumer.accept(containerList);
+			ContainerList containerList = new ContainerList(listeners, children, userData, consumptionPolicy,
+				consumptionFunction, selectionPolicy);
+			for (AbstractContainer child : children)
+				CONTAINER_SECRETS.setParent(child, containerList);
 			return containerList;
 		}
 
 		@Override
 		public String toString()
 		{
-			ToStringBuilder builder = new ToStringBuilder(Builder.class).
+			return new ToStringBuilder(Builder.class).
 				add("consumptionPolicy", consumptionPolicy).
 				add("selectionPolicy", selectionPolicy).
 				add("children", children).
-				add("userData", userData);
-			return builder.
+				add("userData", userData).
 				toString();
 		}
 	}
@@ -449,7 +431,7 @@ public final class ContainerList extends AbstractContainer
 	/**
 	 * Updates this ContainerList's configuration.
 	 * <p>
-	 * <b>Thread-safety</b>: This class is not thread-safe.
+	 * <b>Thread-safety</b>: This class is <b>not</b> thread-safe.
 	 */
 	public final class ConfigurationUpdater implements AutoCloseable
 	{
@@ -460,7 +442,6 @@ public final class ContainerList extends AbstractContainer
 		private SelectionPolicy selectionPolicy;
 		private final List<ContainerListener> listeners;
 		private final List<AbstractContainer> children;
-		private final Consumer<AbstractContainer> addChild;
 		private Object userData;
 		private boolean wakeConsumers;
 		private boolean changed;
@@ -476,15 +457,6 @@ public final class ContainerList extends AbstractContainer
 			this.consumptionFunction = ContainerList.this.consumptionFunction;
 			this.consumptionPolicy = ContainerList.this.consumptionPolicy;
 			this.selectionPolicy = ContainerList.this.selectionPolicy;
-			this.addChild = child ->
-			{
-				if (consumptionPolicy == ConsumptionPolicy.CONSUME_FROM_ONE)
-				{
-					// Adding a new bucket could allow consumers to consume tokens earlier than anticipated
-					wakeConsumers = true;
-				}
-				children.add(child);
-			};
 		}
 
 		/**
@@ -562,12 +534,18 @@ public final class ContainerList extends AbstractContainer
 		 * @throws NullPointerException  if {@code bucketBuilder} is null
 		 * @throws IllegalStateException if the updater is closed
 		 */
-		public ConfigurationUpdater addBucket(Consumer<Bucket.Builder> bucketBuilder)
+		public ConfigurationUpdater addBucket(Function<Bucket.Builder, Bucket> bucketBuilder)
 		{
 			requireThat(bucketBuilder, "bucketBuilder").isNotNull();
 			ensureOpen();
-			bucketBuilder.accept(new Bucket.Builder(lock, addChild::accept));
+			Bucket child = bucketBuilder.apply(Bucket.builder());
+			children.add(child);
 			changed = true;
+			if (consumptionPolicy == ConsumptionPolicy.CONSUME_FROM_ONE)
+			{
+				// Adding a new bucket may allow consumers to consume tokens earlier than originally anticipated
+				wakeConsumers = true;
+			}
 			return this;
 		}
 
@@ -579,12 +557,18 @@ public final class ContainerList extends AbstractContainer
 		 * @throws NullPointerException  if {@code listBuilder} is null
 		 * @throws IllegalStateException if the updater is closed
 		 */
-		public ConfigurationUpdater addContainerList(Consumer<Builder> listBuilder)
+		public ConfigurationUpdater addContainerList(Function<ContainerList.Builder, ContainerList> listBuilder)
 		{
 			requireThat(listBuilder, "listBuilder").isNotNull();
 			ensureOpen();
-			listBuilder.accept(new Builder(lock, addChild::accept));
+			ContainerList child = listBuilder.apply(ContainerList.builder());
+			children.add(child);
 			changed = true;
+			if (consumptionPolicy == ConsumptionPolicy.CONSUME_FROM_ONE)
+			{
+				// Adding a new bucket may allow consumers to consume tokens earlier than originally anticipated
+				wakeConsumers = true;
+			}
 			return this;
 		}
 
@@ -685,12 +669,19 @@ public final class ContainerList extends AbstractContainer
 				ContainerList.this.consumptionFunction = consumptionFunction;
 				ContainerList.this.selectionPolicy = selectionPolicy;
 				ContainerList.this.userData = userData;
-				if (wakeConsumers)
-					tokensUpdated.signalAll();
+				for (AbstractContainer child : children)
+					CONTAINER_SECRETS.setParent(child, ContainerList.this);
 			}
 			finally
 			{
 				writeLock.close();
+			}
+			if (wakeConsumers)
+			{
+				try (CloseableLock ignored = conditionLock.writeLock())
+				{
+					tokensUpdated.signalAll();
+				}
 			}
 		}
 
