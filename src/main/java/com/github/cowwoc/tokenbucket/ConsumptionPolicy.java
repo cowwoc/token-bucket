@@ -19,12 +19,15 @@ public enum ConsumptionPolicy
 			@Override
 			long getMaximumTokens(ContainerList containerList)
 			{
-				List<AbstractContainer> children = containerList.children;
-				if (children.isEmpty())
+				List<AbstractContainer> descendants = CONTAINER_SECRETS.getDescendants(containerList);
+				if (descendants.isEmpty())
 					return 0;
 				long maximumTokens = 0;
-				for (AbstractContainer child : children)
-					maximumTokens = Math.max(maximumTokens, CONTAINER_SECRETS.getMaximumTokens(child));
+				for (AbstractContainer descendant : descendants)
+				{
+					if (descendant instanceof Bucket bucket)
+						maximumTokens = Math.max(maximumTokens, bucket.getMaximumTokens());
+				}
 				return maximumTokens;
 			}
 		},
@@ -36,12 +39,15 @@ public enum ConsumptionPolicy
 			@Override
 			long getMaximumTokens(ContainerList containerList)
 			{
-				List<AbstractContainer> children = containerList.children;
-				if (children.isEmpty())
+				List<AbstractContainer> descendants = CONTAINER_SECRETS.getDescendants(containerList);
+				if (descendants.isEmpty())
 					return 0;
 				long maximumTokens = Long.MAX_VALUE;
-				for (AbstractContainer child : children)
-					maximumTokens = Math.min(maximumTokens, CONTAINER_SECRETS.getMaximumTokens(child));
+				for (AbstractContainer descendant : descendants)
+				{
+					if (descendant instanceof Bucket bucket)
+						maximumTokens = Math.min(maximumTokens, bucket.getMaximumTokens());
+				}
 				return maximumTokens;
 			}
 		};

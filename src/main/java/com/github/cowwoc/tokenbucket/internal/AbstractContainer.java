@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
@@ -77,6 +78,24 @@ public abstract class AbstractContainer implements Container
 					child.parent = parent;
 				}
 			}
+
+			@Override
+			public List<AbstractContainer> getDescendants(AbstractContainer container)
+			{
+				List<AbstractContainer> descendants = new ArrayList<>();
+				for (AbstractContainer child : container.children)
+				{
+					descendants.add(child);
+					descendants.addAll(getDescendants(child));
+				}
+				return descendants;
+			}
+
+			@Override
+			public ReentrantStampedLock getLock(AbstractContainer container)
+			{
+				return container.lock;
+			}
 		};
 	}
 
@@ -111,6 +130,7 @@ public abstract class AbstractContainer implements Container
 	 * The parent container. {@code null} if there is no parent.
 	 */
 	protected AbstractContainer parent;
+	protected List<AbstractContainer> children;
 	protected List<ContainerListener> listeners;
 	protected ConsumptionFunction consumptionFunction;
 	protected Object userData;
@@ -132,34 +152,51 @@ public abstract class AbstractContainer implements Container
 	/**
 	 * Creates a new AbstractContainer.
 	 *
+	 * @param children            the children containers
 	 * @param listeners           the event listeners associated with this container
-	 * @param userData            the data associated with this container
+	 * @param userData            the data associated with this container ({@code null} if absent)
 	 * @param consumptionFunction indicates how tokens are consumed
-	 * @throws NullPointerException if {@code listeners}, {@code lock} or {@code consumptionFunction} are null
+	 * @throws NullPointerException if any mandatory argument is null
 	 */
-	protected AbstractContainer(List<ContainerListener> listeners, Object userData,
-	                            ConsumptionFunction consumptionFunction)
+	protected AbstractContainer(List<AbstractContainer> children, List<ContainerListener> listeners,
+	                            Object userData, ConsumptionFunction consumptionFunction)
 	{
 		if (assertionsAreEnabled())
 		{
 			requireThat(listeners, "listeners").isNotNull();
 			requireThat(consumptionFunction, "consumptionFunction").isNotNull();
 		}
+		this.children = List.copyOf(children);
 		this.listeners = List.copyOf(listeners);
 		this.userData = userData;
 		this.consumptionFunction = consumptionFunction;
 	}
 
 	@Override
-	public List<ContainerListener> getListeners()
-	{
-		return lock.optimisticReadLock(() -> listeners);
-	}
-
-	@Override
 	public Object getUserData()
 	{
 		return lock.optimisticReadLock(() -> userData);
+	}
+
+	/**
+	 * Returns the children in this list.
+	 *
+	 * @return an unmodifiable list
+	 */
+	public List<Container> getChildren()
+	{
+		return lock.optimisticReadLock(() ->
+		{
+			@SuppressWarnings("unchecked")
+			List<Container> children = (List<Container>) (List<?>) this.children;
+			return children;
+		});
+	}
+
+	@Override
+	public List<ContainerListener> getListeners()
+	{
+		return lock.optimisticReadLock(() -> listeners);
 	}
 
 	@Override

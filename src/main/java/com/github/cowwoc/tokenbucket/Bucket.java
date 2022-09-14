@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -49,7 +50,7 @@ public final class Bucket extends AbstractContainer
 	 */
 	private Bucket(List<Limit> limits, List<ContainerListener> listeners, Object userData)
 	{
-		super(listeners, userData, Bucket::tryConsume);
+		super(List.of(), listeners, userData, Bucket::tryConsume);
 		assertThat(r -> r.requireThat(limits, "limits").isNotEmpty());
 		this.limits = List.copyOf(limits);
 	}
@@ -153,54 +154,71 @@ public final class Bucket extends AbstractContainer
 		});
 
 		Bucket bucket = (Bucket) abstractContainer;
-		List<Limit> limits = bucket.getLimits();
-		for (Limit limit : limits)
+		List<CloseableLock> locks = new ArrayList<>();
+		try
 		{
-			requireThat(minimumTokens, nameOfMinimumTokens).
-				isLessThanOrEqualTo(limit.getMaximumTokens(), "limit.getMaximumTokens()");
-			limit.refill(consumedAt);
-		}
-		long tokensConsumed = Long.MAX_VALUE;
-		Instant latestAvailableAt = consumedAt;
-		Limit bottleneck = null;
-		for (Limit limit : limits)
-		{
-			SimulatedConsumption simulatedConsumption = limit.simulateConsumption(minimumTokens, maximumTokens,
-				consumedAt);
-			tokensConsumed = Math.min(tokensConsumed, simulatedConsumption.getTokensConsumed());
-			if (simulatedConsumption.getAvailableAt().compareTo(latestAvailableAt) > 0)
-			{
-				latestAvailableAt = simulatedConsumption.getAvailableAt();
-				bottleneck = limit;
-			}
-		}
-		if (tokensConsumed > 0)
-		{
-			// If there are any remaining tokens after consumption then wake up other consumers
-			long minimumTokensLeft = Long.MAX_VALUE;
+			// Prevent the list of limits from changing
+			locks.add(bucket.lock.readLock());
+
+			// Prevent the number of tokens from changing
+			List<Limit> limits = bucket.limits;
+			for (Limit limit : limits)
+				locks.add(limit.lock.writeLock());
+
 			for (Limit limit : limits)
 			{
-				long tokensLeft;
-				try (CloseableLock ignored = limit.lock.writeLock())
-				{
-					tokensLeft = limit.consume(tokensConsumed);
-				}
-				if (tokensLeft < minimumTokensLeft)
-					minimumTokensLeft = tokensLeft;
+				requireThat(minimumTokens, nameOfMinimumTokens).
+					isLessThanOrEqualTo(limit.getMaximumTokens(), "limit.getMaximumTokens()");
+				limit.refill(consumedAt);
 			}
-			if (minimumTokensLeft > 0)
+			long tokensConsumed = Long.MAX_VALUE;
+			Instant latestAvailableAt = consumedAt;
+			Limit bottleneck = null;
+			for (Limit limit : limits)
 			{
-				try (CloseableLock ignored = bucket.conditionLock.writeLock())
+				SimulatedConsumption simulatedConsumption = limit.simulateConsumption(minimumTokens, maximumTokens,
+					consumedAt);
+				tokensConsumed = Math.min(tokensConsumed, simulatedConsumption.getTokensConsumed());
+				if (simulatedConsumption.getAvailableAt().compareTo(latestAvailableAt) > 0)
 				{
-					bucket.tokensUpdated.signalAll();
+					latestAvailableAt = simulatedConsumption.getAvailableAt();
+					bottleneck = limit;
 				}
 			}
+			if (tokensConsumed > 0)
+			{
+				// If there are any remaining tokens after consumption then wake up other consumers
+				long minimumTokensLeft = Long.MAX_VALUE;
+				for (Limit limit : limits)
+				{
+					long tokensLeft;
+					try (CloseableLock ignored = limit.lock.writeLock())
+					{
+						tokensLeft = limit.consume(tokensConsumed);
+					}
+					if (tokensLeft < minimumTokensLeft)
+						minimumTokensLeft = tokensLeft;
+				}
+				if (minimumTokensLeft > 0)
+				{
+					try (CloseableLock ignored = bucket.conditionLock.writeLock())
+					{
+						bucket.tokensUpdated.signalAll();
+					}
+				}
+				return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
+					consumedAt, consumedAt, minimumTokensLeft, List.of());
+			}
+			assert (bottleneck != null);
 			return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
-				consumedAt, consumedAt, minimumTokensLeft, List.of());
+				consumedAt, latestAvailableAt, 0, List.of(bottleneck));
 		}
-		assert (bottleneck != null);
-		return new ConsumptionResult(bucket, minimumTokens, maximumTokens, tokensConsumed, requestedAt,
-			consumedAt, latestAvailableAt, 0, List.of(bottleneck));
+		finally
+		{
+			Collections.reverse(locks);
+			for (CloseableLock lock : locks)
+				lock.close();
+		}
 	}
 
 	/**
@@ -333,7 +351,6 @@ public final class Bucket extends AbstractContainer
 		 * @return this
 		 * @throws NullPointerException if any of the arguments are null
 		 */
-		@CheckReturnValue
 		public Builder addLimit(Function<Limit.Builder, Limit> limitBuilder)
 		{
 			requireThat(limitBuilder, "limitBuilder").isNotNull();

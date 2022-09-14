@@ -72,4 +72,20 @@ public interface ContainerSecrets
 	 * @implNote This method acquires its own locks
 	 */
 	void setParent(AbstractContainer child, AbstractContainer parent);
+
+	/**
+	 * Returns a list of all descendant containers ({@code Limit}s are not containers).
+	 *
+	 * @param container a container
+	 * @return a list of all descendant containers
+	 */
+	List<AbstractContainer> getDescendants(AbstractContainer container);
+
+	/**
+	 * Returns a container's lock.
+	 *
+	 * @param container a container
+	 * @return the container's lock
+	 */
+	ReentrantStampedLock getLock(AbstractContainer container);
 }

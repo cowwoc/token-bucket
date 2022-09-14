@@ -67,7 +67,7 @@ public final class ReentrantStampedLock
 	 * @throws NullPointerException if {@code task} is null
 	 * @throws WrappingException    if {@code task} throws a checked exception
 	 */
-	public void optimisticReadLock(Runnable task)
+	public void optimisticReadLock(CallableWithoutReturnValue task)
 	{
 		optimisticReadLock(() ->
 		{

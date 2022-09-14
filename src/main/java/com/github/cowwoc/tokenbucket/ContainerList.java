@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
@@ -39,38 +40,42 @@ public final class ContainerList extends AbstractContainer
 
 				while (true)
 				{
-					@SuppressWarnings("unchecked")
-					List<AbstractContainer> children = (List<AbstractContainer>) (List<?>) containerList.getChildren();
-					assertThat(r -> r.requireThat(children, "children").isNotEmpty());
-
-					AbstractContainer container = selectionPolicy.nextContainer(children);
-					if (container == firstContainer)
+					// Prevent the list of children from changing
+					try (CloseableLock closeableLock = containerList.lock.readLock())
 					{
-						if (earliestConsumption == null)
+						@SuppressWarnings("unchecked")
+						List<AbstractContainer> children = (List<AbstractContainer>) (List<?>) containerList.getChildren();
+						assertThat(r -> r.requireThat(children, "children").isNotEmpty());
+
+						AbstractContainer container = selectionPolicy.nextContainer(children);
+						if (container == firstContainer)
 						{
-							long containerMaximumTokens = containerList.getMaximumTokens();
-							throw new IllegalArgumentException("The maximum number of tokens that the container could " +
-								"ever contain (containerMaximumTokens) is less than the minimum number of tokens that were " +
-								"requested (minimumTokensRequested).\n" +
-								"minimumTokensRequested: " + minimumTokens + "\n" +
-								"containerMaximumTokens: " + containerMaximumTokens);
+							if (earliestConsumption == null)
+							{
+								long containerMaximumTokens = containerList.getMaximumTokens();
+								throw new IllegalArgumentException("The maximum number of tokens that the container could " +
+									"ever contain (containerMaximumTokens) is less than the minimum number of tokens that were " +
+									"requested (minimumTokensRequested).\n" +
+									"minimumTokensRequested: " + minimumTokens + "\n" +
+									"containerMaximumTokens: " + containerMaximumTokens);
+							}
+							return earliestConsumption;
 						}
-						return earliestConsumption;
-					}
-					if (firstContainer == null)
-						firstContainer = container;
+						if (firstContainer == null)
+							firstContainer = container;
 
-					long containerMaximumTokens = CONTAINER_SECRETS.getMaximumTokens(container);
-					if (containerMaximumTokens < minimumTokens)
-						continue;
-					ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(container, minimumTokens,
-						maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt);
-					if (consumptionResult.isSuccessful())
-						return consumptionResult;
-					if (earliestConsumption == null ||
-						earliestConsumption.getAvailableAt().isAfter(consumptionResult.getAvailableAt()))
-					{
-						earliestConsumption = consumptionResult;
+						long containerMaximumTokens = CONTAINER_SECRETS.getMaximumTokens(container);
+						if (containerMaximumTokens < minimumTokens)
+							continue;
+						ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(container, minimumTokens,
+							maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt);
+						if (consumptionResult.isSuccessful())
+							return consumptionResult;
+						if (earliestConsumption == null ||
+							earliestConsumption.getAvailableAt().isAfter(consumptionResult.getAvailableAt()))
+						{
+							earliestConsumption = consumptionResult;
+						}
 					}
 				}
 			};
@@ -78,45 +83,70 @@ public final class ContainerList extends AbstractContainer
 		(minimumTokens, maximumTokens, nameOfMinimumTokens, requestedAt, consumedAt, abstractBucket) ->
 		{
 			ContainerList containerList = (ContainerList) abstractBucket;
-			@SuppressWarnings("unchecked")
-			List<AbstractContainer> children = (List<AbstractContainer>) (List<?>) containerList.getChildren();
-			assertThat(r -> r.requireThat(children, "children").isNotEmpty());
-			requireThat(minimumTokens, nameOfMinimumTokens).
-				isLessThanOrEqualTo(containerList.getMaximumTokens(), "containerList.getMaximumTokens()");
 
-			long tokensToConsume = maximumTokens;
-			long tokensLeft = Long.MAX_VALUE;
-			for (AbstractContainer child : children)
+			List<CloseableLock> locks = new ArrayList<>();
+			try
 			{
-				long availableTokens = CONTAINER_SECRETS.getAvailableTokens(child);
-				tokensToConsume = Math.min(tokensToConsume, availableTokens);
-				tokensLeft = Math.min(tokensLeft, availableTokens);
-			}
-			if (tokensToConsume < minimumTokens)
-			{
-				List<Limit> bottlenecks = new ArrayList<>();
-				for (AbstractContainer child : children)
-					bottlenecks.addAll(CONTAINER_SECRETS.getLimitsWithInsufficientTokens(child, minimumTokens));
-				return new ConsumptionResult(containerList, minimumTokens, maximumTokens, 0,
-					requestedAt, consumedAt, consumedAt, tokensLeft, bottlenecks);
-			}
+				// Prevent the list of descendents from changing
+				List<AbstractContainer> descendants = CONTAINER_SECRETS.getDescendants(containerList);
+				assertThat(r -> r.requireThat(descendants, "descendants").isNotEmpty());
+				for (AbstractContainer descendant : descendants)
+					locks.add(CONTAINER_SECRETS.getLock(descendant).readLock());
 
-			for (AbstractContainer container : children)
-			{
-				// Consume an equal number of tokens across all containers, even if some have more available.
-				ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(container, tokensToConsume,
-					tokensToConsume, nameOfMinimumTokens, requestedAt, consumedAt);
-				long finalTokensToConsume = tokensToConsume;
-				assertThat(r ->
+				for (AbstractContainer descendant : descendants)
 				{
-					r.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
-					r.requireThat(consumptionResult.getTokensConsumed(),
-						"consumptionResult.getTokensConsumed()").isEqualTo(finalTokensToConsume, "tokensToConsume");
-				});
+					// Prevent the number of tokens from changing
+					if (descendant instanceof Bucket bucket)
+					{
+						for (Limit limit : bucket.getLimits())
+							locks.add(limit.lock.writeLock());
+					}
+				}
+				requireThat(minimumTokens, nameOfMinimumTokens).
+					isLessThanOrEqualTo(containerList.getMaximumTokens(), "containerList.getMaximumTokens()");
+
+				long tokensToConsume = maximumTokens;
+				long tokensLeft = Long.MAX_VALUE;
+				@SuppressWarnings("unchecked")
+				List<AbstractContainer> children = (List<AbstractContainer>) (List<?>) containerList.getChildren();
+				for (AbstractContainer child : children)
+				{
+					long availableTokens = CONTAINER_SECRETS.getAvailableTokens(child);
+					tokensToConsume = Math.min(tokensToConsume, availableTokens);
+					tokensLeft = Math.min(tokensLeft, availableTokens);
+				}
+				if (tokensToConsume < minimumTokens)
+				{
+					List<Limit> bottlenecks = new ArrayList<>();
+					for (AbstractContainer child : children)
+						bottlenecks.addAll(CONTAINER_SECRETS.getLimitsWithInsufficientTokens(child, minimumTokens));
+					return new ConsumptionResult(containerList, minimumTokens, maximumTokens, 0,
+						requestedAt, consumedAt, consumedAt, tokensLeft, bottlenecks);
+				}
+
+				for (AbstractContainer container : children)
+				{
+					// Consume an equal number of tokens across all containers, even if some have more available.
+					ConsumptionResult consumptionResult = CONTAINER_SECRETS.tryConsume(container, tokensToConsume,
+						tokensToConsume, nameOfMinimumTokens, requestedAt, consumedAt);
+					long finalTokensToConsume = tokensToConsume;
+					assertThat(r ->
+					{
+						r.requireThat(consumptionResult.isSuccessful(), "consumptionResult.isSuccessful()").isTrue();
+						r.requireThat(consumptionResult.getTokensConsumed(),
+							"consumptionResult.getTokensConsumed()").isEqualTo(finalTokensToConsume, "tokensToConsume");
+					});
+				}
+				tokensLeft -= tokensToConsume;
+				return new ConsumptionResult(containerList, minimumTokens, maximumTokens, tokensToConsume,
+					requestedAt, consumedAt, consumedAt, tokensLeft, List.of());
 			}
-			tokensLeft -= tokensToConsume;
-			return new ConsumptionResult(containerList, minimumTokens, maximumTokens, tokensToConsume,
-				requestedAt, consumedAt, consumedAt, tokensLeft, List.of());
+			finally
+			{
+				Collections.reverse(locks);
+				for (CloseableLock lock : locks)
+					lock.close();
+			}
 		};
 
 	/**
@@ -131,7 +161,6 @@ public final class ContainerList extends AbstractContainer
 		return new Builder();
 	}
 
-	List<AbstractContainer> children;
 	private ConsumptionPolicy consumptionPolicy;
 	private SelectionPolicy selectionPolicy;
 	private final Logger log = LoggerFactory.getLogger(ContainerList.class);
@@ -150,17 +179,16 @@ public final class ContainerList extends AbstractContainer
 	 *                                  {@code selectionPolicy} are null
 	 * @throws IllegalArgumentException if {@code children} are empty
 	 */
-	private ContainerList(List<ContainerListener> listeners, List<AbstractContainer> children, Object userData,
+	private ContainerList(List<AbstractContainer> children, List<ContainerListener> listeners, Object userData,
 	                      ConsumptionPolicy consumptionPolicy, ConsumptionFunction consumptionFunction,
 	                      SelectionPolicy selectionPolicy)
 	{
-		super(listeners, userData, consumptionFunction);
+		super(children, listeners, userData, consumptionFunction);
 		assertThat(r ->
 		{
 			r.requireThat(children, "children").isNotEmpty();
 			r.requireThat(consumptionPolicy, "consumptionPolicy").isNotNull();
 		});
-		this.children = List.copyOf(children);
 		this.consumptionPolicy = consumptionPolicy;
 		this.selectionPolicy = selectionPolicy;
 	}
@@ -169,22 +197,6 @@ public final class ContainerList extends AbstractContainer
 	protected Logger getLogger()
 	{
 		return log;
-	}
-
-	/**
-	 * Returns the children in this list.
-	 *
-	 * @return an unmodifiable list
-	 */
-	public List<Container> getChildren()
-	{
-		return lock.optimisticReadLock(() ->
-		{
-			// This is safe because the list is unmodifiable
-			@SuppressWarnings("unchecked")
-			List<Container> children = (List<Container>) (List<?>) this.children;
-			return children;
-		});
 	}
 
 	@Override
@@ -350,7 +362,6 @@ public final class ContainerList extends AbstractContainer
 		 * @return this
 		 * @throws NullPointerException if {@code bucketBuilder} is null
 		 */
-		@CheckReturnValue
 		public Builder addBucket(Function<Bucket.Builder, Bucket> bucketBuilder)
 		{
 			requireThat(bucketBuilder, "bucketBuilder").isNotNull();
@@ -366,7 +377,6 @@ public final class ContainerList extends AbstractContainer
 		 * @return this
 		 * @throws NullPointerException if {@code listBuilder} is null
 		 */
-		@CheckReturnValue
 		public Builder addContainerList(Function<ContainerList.Builder, ContainerList> listBuilder)
 		{
 			requireThat(listBuilder, "listBuilder").isNotNull();
@@ -409,7 +419,7 @@ public final class ContainerList extends AbstractContainer
 		 */
 		public ContainerList build()
 		{
-			ContainerList containerList = new ContainerList(listeners, children, userData, consumptionPolicy,
+			ContainerList containerList = new ContainerList(children, listeners, userData, consumptionPolicy,
 				consumptionFunction, selectionPolicy);
 			for (AbstractContainer child : children)
 				CONTAINER_SECRETS.setParent(child, containerList);

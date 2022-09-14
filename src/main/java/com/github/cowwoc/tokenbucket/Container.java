@@ -11,18 +11,25 @@ import java.util.concurrent.TimeUnit;
 public interface Container
 {
 	/**
-	 * Returns the listeners associated with this container.
-	 *
-	 * @return an unmodifiable list
-	 */
-	List<ContainerListener> getListeners();
-
-	/**
 	 * Returns the data associated with this container.
 	 *
 	 * @return the data associated with this container
 	 */
 	Object getUserData();
+
+	/**
+	 * Returns the children containers.
+	 *
+	 * @return the children containers
+	 */
+	List<Container> getChildren();
+
+	/**
+	 * Returns the listeners associated with this container.
+	 *
+	 * @return an unmodifiable list
+	 */
+	List<ContainerListener> getListeners();
 
 	/**
 	 * Consumes a single token, only if one is available at the time of invocation. Consumption order is not

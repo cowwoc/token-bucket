@@ -1,5 +1,7 @@
 package com.github.cowwoc.tokenbucket.internal;
 
+import com.github.cowwoc.requirements.DefaultRequirements;
+
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 
@@ -90,7 +92,7 @@ public class WrappingException extends RuntimeException
 			throw re;
 		if (t instanceof ExecutionException ee)
 			return wrap(ee.getCause());
-		return new WrappingException(t);
+		return new WrappingException(DefaultRequirements.getContextMessage(null), t);
 	}
 
 	/**
