@@ -16,7 +16,6 @@ import java.util.concurrent.locks.Condition;
 import java.util.function.Function;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
-import static com.github.cowwoc.requirements.DefaultRequirements.assertionsAreEnabled;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
@@ -161,11 +160,11 @@ public abstract class AbstractContainer implements Container
 	protected AbstractContainer(List<AbstractContainer> children, List<ContainerListener> listeners,
 	                            Object userData, ConsumptionFunction consumptionFunction)
 	{
-		if (assertionsAreEnabled())
+		assertThat(r ->
 		{
-			requireThat(listeners, "listeners").isNotNull();
-			requireThat(consumptionFunction, "consumptionFunction").isNotNull();
-		}
+			r.requireThat(listeners, "listeners").isNotNull();
+			r.requireThat(consumptionFunction, "consumptionFunction").isNotNull();
+		});
 		this.children = List.copyOf(children);
 		this.listeners = List.copyOf(listeners);
 		this.userData = userData;

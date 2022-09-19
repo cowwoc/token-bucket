@@ -13,7 +13,6 @@ import java.time.Instant;
 import java.util.Objects;
 
 import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
-import static com.github.cowwoc.requirements.DefaultRequirements.assertionsAreEnabled;
 import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
 
 /**
@@ -438,12 +437,12 @@ public final class Limit
 		 */
 		SimulatedConsumption(long tokensConsumed, Instant requestedAt, Instant availableAt)
 		{
-			if (assertionsAreEnabled())
+			assertThat(r ->
 			{
-				requireThat(tokensConsumed, "tokensConsumed").isNotNegative();
-				requireThat(requestedAt, "requestedAt").isNotNull();
-				requireThat(availableAt, "availableAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
-			}
+				r.requireThat(tokensConsumed, "tokensConsumed").isNotNegative();
+				r.requireThat(requestedAt, "requestedAt").isNotNull();
+				r.requireThat(availableAt, "availableAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+			});
 			this.tokensConsumed = tokensConsumed;
 			this.requestedAt = requestedAt;
 			this.availableAt = availableAt;

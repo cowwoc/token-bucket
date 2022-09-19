@@ -7,8 +7,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
-import static com.github.cowwoc.requirements.DefaultRequirements.assertionsAreEnabled;
-import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
+import static com.github.cowwoc.requirements.DefaultRequirements.assertThat;
 
 /**
  * The result of an attempt to consume tokens.
@@ -54,24 +53,24 @@ public final class ConsumptionResult
 	                         long tokensConsumed, Instant requestedAt, Instant consumedAt, Instant availableAt,
 	                         long tokensLeft, List<Limit> bottlenecks)
 	{
-		if (assertionsAreEnabled())
+		assertThat(r ->
 		{
-			requireThat(container, "container").isNotNull();
-			requireThat(minimumTokensRequested, "minimumTokensRequested").isPositive();
-			requireThat(maximumTokensRequested, "maximumTokensRequested").isPositive().
+			r.requireThat(container, "container").isNotNull();
+			r.requireThat(minimumTokensRequested, "minimumTokensRequested").isPositive();
+			r.requireThat(maximumTokensRequested, "maximumTokensRequested").isPositive().
 				isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
-			requireThat(tokensConsumed, "tokensConsumed").isNotNegative();
+			r.requireThat(tokensConsumed, "tokensConsumed").isNotNegative();
 			if (tokensConsumed > 0)
 			{
-				requireThat(tokensConsumed, "tokensConsumed").
+				r.requireThat(tokensConsumed, "tokensConsumed").
 					isGreaterThanOrEqualTo(minimumTokensRequested, "minimumTokensRequested");
 			}
-			requireThat(requestedAt, "requestedAt").isNotNull();
-			requireThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
-			requireThat(availableAt, "availableAt").isGreaterThanOrEqualTo(consumedAt, "consumedAt");
-			requireThat(tokensLeft, "tokensLeft").isNotNegative();
-			requireThat(bottlenecks, "bottlenecks").isNotNull();
-		}
+			r.requireThat(requestedAt, "requestedAt").isNotNull();
+			r.requireThat(consumedAt, "consumedAt").isGreaterThanOrEqualTo(requestedAt, "requestedAt");
+			r.requireThat(availableAt, "availableAt").isGreaterThanOrEqualTo(consumedAt, "consumedAt");
+			r.requireThat(tokensLeft, "tokensLeft").isNotNegative();
+			r.requireThat(bottlenecks, "bottlenecks").isNotNull();
+		});
 		this.container = container;
 		this.minimumTokensRequested = minimumTokensRequested;
 		this.maximumTokensRequested = maximumTokensRequested;

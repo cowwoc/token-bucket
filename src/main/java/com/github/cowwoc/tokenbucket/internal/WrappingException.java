@@ -2,6 +2,7 @@ package com.github.cowwoc.tokenbucket.internal;
 
 import com.github.cowwoc.requirements.DefaultRequirements;
 
+import java.io.Serial;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 
@@ -12,7 +13,8 @@ import static com.github.cowwoc.requirements.DefaultRequirements.requireThat;
  */
 public class WrappingException extends RuntimeException
 {
-	static final long serialVersionUID = 0L;
+	@Serial
+	private static final long serialVersionUID = 0L;
 
 	/**
 	 * Wraps an exception.
@@ -53,10 +55,6 @@ public class WrappingException extends RuntimeException
 		try
 		{
 			return callable.call();
-		}
-		catch (RuntimeException e)
-		{
-			throw e;
 		}
 		catch (Exception e)
 		{
