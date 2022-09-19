@@ -7,12 +7,14 @@ deployed. If it is a release, then a release is deployed.
 
 # Release steps
 
-* Remove `-SNAPSHOT` from the `pom.xml` version
-* Commit `Released version X.Y`
-* Create tag `release-X.Y`
+* Remove `-SNAPSHOT` from the `pom.xml` version.
+* Commit `Released version X.Y`.
+* Create tag `release-X.Y`.
 * Deploy to maven-central using the above command-line.
 * Change the version number to the next SNAPSHOT version.
 * Copy the Javadoc from `/target/site/apidocs` to a temporary directory.
 * Check out the `gh-pages` branch.
 * Create a new directory for the release (e.g. `/X.Y/api/docs`) and copy the release Javadoc into it.
 * Commit the changes and switch back to the `master` branch.
+* Update `pom.xml` to the next `-SNAPSHOT` version.
+* Commit `Updated version to X.Z-SNAPSHOT` where `X.Z-SNAPSHOT` is the next release version.
