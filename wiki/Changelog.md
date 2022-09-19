@@ -1,14 +1,15 @@
 Minor or cosmetic changes have been omitted from this list.
 See https://github.com/cowwoc/token-bucket/commits/master for a full list.
 
-## Version 6.0 - ???
+## Version 6.0 - 2022/09/19
 
 * Breaking changes
-    * Removed `AbstractContainer.getParent()`.
     * `Limit.builder()` replaced by `Bucket.builder().addLimit()`.
+    * Removed `AbstractContainer.getParent()`.
     * Removed `Container.userDataInToString()`.
 * Improvements
-    * Performance improvement: Upgraded to Requirements 8.0 to reduce object allocation by `assertThat()`.
+    * Performance improvement: Upgraded to Requirements 8.0.1 to which improves the performance of
+      `assertThat()`.
     * Added `ConsumptionResult.getTokensLeft()`.
 
 ## Version 5.2 - 2022/09/02
